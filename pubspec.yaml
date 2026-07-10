@@ -1,7 +1,7 @@
 name: glovo_mate
 description: "GlovoMate – Track delivery drivers in real-time."
 publish_to: 'none'
-version: 1.0.8+9
+version: 1.6.1+20
 
 environment:
   sdk: ^3.12.2
@@ -16,6 +16,7 @@ dependencies:
   firebase_core: ^3.12.1
   firebase_auth: ^5.5.1
   firebase_database: 11.3.10
+  firebase_crashlytics: ^4.3.2
 
   # Location
   geolocator: ^13.0.2
@@ -37,11 +38,24 @@ dependencies:
   android_intent_plus: ^6.0.0
   shared_preferences: ^2.5.5
   flutter_cache_manager: ^3.4.1
+  crypto: ^3.0.3
   wakelock_plus: ^1.2.14
+  firebase_app_check: ^0.3.2+10
+  flutter_tts: ^4.2.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.3
 
 flutter:
   uses-material-design: true
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  adaptive_icon_foreground: "assets/icon/icon_foreground.png"
+  adaptive_icon_background: "#FF9800"
+  remove_alpha_ios: true
