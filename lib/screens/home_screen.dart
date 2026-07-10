@@ -16,7 +16,6 @@ import '../services/haversine.dart';
 import '../services/map_cache_service.dart';
 import '../services/alert_service.dart';
 import '../services/proximity_service.dart';
-import '../widgets/mute_banner.dart';
 import 'map_screen.dart';
 import 'settings_screen.dart';
 import 'chat_screen.dart';
@@ -81,6 +80,9 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   // Track processed message keys so we don't re-notify
   final Set<String> _notifiedMessages = {};
   final bool _chatScreenActive = false;
+
+  // When true, show the map directly instead of the tracking placeholder
+  bool _showMapDirectly = false;
 
   // ── Lifecycle state for safe permission-flow resume ──
   bool _awaitingPermissionReturn = false; // did we send the user to Settings?
@@ -236,7 +238,12 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _listenToMembers();
       _listenToMessages();
       _listenToAlertProximity();
-      if (mounted) setState(() => _isTracking = true);
+      if (mounted) {
+        setState(() {
+          _isTracking = true;
+          _showMapDirectly = true;
+        });
+      }
     } on GpsDisabledException {
       // GPS is off — show a friendly dialog with a button to open settings.
       _servicesStarted = false; // allow retry after user enables GPS
@@ -471,13 +478,21 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
   }
 
+  bool _isRemovingAlerts = false;
+
   void _listenToAlertProximity() {
     _alertsSubHome = _alertService.watchAlerts(widget.groupCode).listen((
       alerts,
     ) {
       _alertCache = alerts.where((a) => a.type.isAlert).toList();
-      // Auto-remove alerts where enough users voted "gone"
-      _alertService.removeVotedGoneAlerts(widget.groupCode);
+      if (!_isRemovingAlerts) {
+        _isRemovingAlerts = true;
+        _alertService.removeVotedGoneAlerts(widget.groupCode).then((_) {
+          _isRemovingAlerts = false;
+        }).catchError((_) {
+          _isRemovingAlerts = false;
+        });
+      }
     });
   }
 
@@ -639,111 +654,44 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          MuteBanner(localStorage: _localStorage),
-          Expanded(
-            child: _errorMessage.isNotEmpty
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 80,
-                            height: 80,
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.errorContainer,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Icon(
-                              Icons.gps_off_rounded,
-                              size: 40,
-                              color: theme.colorScheme.error,
-                            ),
+      body: _showMapDirectly
+          ? MapScreen(
+              groupCode: widget.groupCode,
+              userName: widget.userName,
+            )
+          : _errorMessage.isNotEmpty
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 80,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.errorContainer,
+                            borderRadius: BorderRadius.circular(20),
                           ),
-                          const SizedBox(height: 20),
-                          Text(
-                            _errorMessage,
-                            textAlign: TextAlign.center,
-                            style: theme.textTheme.bodyLarge?.copyWith(
-                              color: theme.colorScheme.error,
-                            ),
+                          child: Icon(
+                            Icons.gps_off_rounded,
+                            size: 40,
+                            color: theme.colorScheme.error,
                           ),
-                        ],
-                      ),
-                    ),
-                  )
-                : Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          AnimatedContainer(
-                            duration: const Duration(milliseconds: 300),
-                            width: 88,
-                            height: 88,
-                            decoration: BoxDecoration(
-                              color: _isTracking
-                                  ? theme.colorScheme.tertiaryContainer
-                                  : theme.colorScheme.errorContainer,
-                              borderRadius: BorderRadius.circular(24),
-                            ),
-                            child: Icon(
-                              _isTracking
-                                  ? Icons.gps_fixed_rounded
-                                  : Icons.gps_off_rounded,
-                              size: 44,
-                              color: _isTracking
-                                  ? theme.colorScheme.tertiary
-                                  : theme.colorScheme.error,
-                            ),
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          _errorMessage,
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: theme.colorScheme.error,
                           ),
-                          const SizedBox(height: 20),
-                          Text(
-                            _isTracking ? 'التتبع نشط ✓' : 'التتبع متوقف',
-                            style: theme.textTheme.headlineSmall?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: _isTracking
-                                  ? theme.colorScheme.tertiary
-                                  : theme.colorScheme.error,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            _isTracking
-                                ? 'موقعك يُشارك مع المجموعة\nاضغط على الخريطة لعرض الأعضاء'
-                                : 'يرجى تفعيل الموقع من الإعدادات',
-                            textAlign: TextAlign.center,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                          const SizedBox(height: 32),
-                          FilledButton.icon(
-                            onPressed: () {
-                              Navigator.pushReplacement(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => MapScreen(
-                                    groupCode: widget.groupCode,
-                                    userName: widget.userName,
-                                  ),
-                                ),
-                              );
-                            },
-                            icon: const Icon(Icons.map_rounded, size: 22),
-                            label: const Text('فتح الخريطة'),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
-          ),
-        ],
-      ),
+                )
+              : const SizedBox.shrink(),
       bottomNavigationBar: _buildBottomNav(),
     );
   }
