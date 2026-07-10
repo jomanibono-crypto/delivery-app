@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../services/firebase_service.dart';
 import '../services/local_storage_service.dart';
-import 'home_screen.dart';
 import 'map_screen.dart';
 import 'settings_screen.dart';
+import 'blacklist_screen.dart';
 
 /// Group chat screen — all members can send & read messages in real time.
 class ChatScreen extends StatefulWidget {
@@ -46,37 +46,42 @@ class ChatScreenState extends State<ChatScreen> {
   }
 
   void _listenToMessages() {
-    _messagesSubscription =
-        _firebaseService.watchMessages(widget.groupCode).listen((event) {
-      if (!mounted) return;
-      final snap = event.snapshot;
-      if (!snap.exists) {
-        if (mounted) setState(() => _messages.clear());
-        return;
-      }
-      final data = snap.value as Map<dynamic, dynamic>?;
-      if (data == null) {
-        if (mounted) setState(() => _messages.clear());
-        return;
-      }
-      final list = <Map<String, dynamic>>[];
-      data.forEach((key, value) {
-        if (value is! Map) return;
-        list.add({
-          'id': key.toString(),
-          'userId': (value['userId'] as String?) ?? '',
-          'name': (value['name'] as String?) ?? 'عضو',
-          'message': (value['message'] as String?) ?? '',
-          'timestamp': (value['timestamp'] as num?)?.toInt() ?? 0,
-          'icon': (value['icon'] as String?) ?? '',
+    _messagesSubscription = _firebaseService
+        .watchMessages(widget.groupCode)
+        .listen((event) {
+          if (!mounted) return;
+          final snap = event.snapshot;
+          if (!snap.exists) {
+            if (mounted) setState(() => _messages.clear());
+            return;
+          }
+          final data = snap.value is Map
+              ? snap.value as Map<dynamic, dynamic>
+              : null;
+          if (data == null) {
+            if (mounted) setState(() => _messages.clear());
+            return;
+          }
+          final list = <Map<String, dynamic>>[];
+          data.forEach((key, value) {
+            if (value is! Map) return;
+            list.add({
+              'id': key.toString(),
+              'userId': (value['userId'] as String?) ?? '',
+              'name': (value['name'] as String?) ?? 'عضو',
+              'message': (value['message'] as String?) ?? '',
+              'timestamp': (value['timestamp'] as num?)?.toInt() ?? 0,
+              'icon': (value['icon'] as String?) ?? '',
+            });
+          });
+          list.sort(
+            (a, b) => (a['timestamp'] as int).compareTo(b['timestamp'] as int),
+          );
+          if (mounted) {
+            setState(() => _messages = list);
+            _scrollToBottom();
+          }
         });
-      });
-      list.sort((a, b) => (a['timestamp'] as int).compareTo(b['timestamp'] as int));
-      if (mounted) {
-        setState(() => _messages = list);
-        _scrollToBottom();
-      }
-    });
   }
 
   void _scrollToBottom() {
@@ -114,17 +119,53 @@ class ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('الدردشة'),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.chat_bubble_rounded,
+              size: 22,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(width: 8),
+            const Text('الدردشة'),
+          ],
+        ),
         actions: [
           Padding(
-            padding: const EdgeInsets.only(left: 16),
+            padding: const EdgeInsets.only(left: 12),
             child: Center(
-              child: Chip(
-                avatar: const Icon(Icons.chat, size: 16),
-                label: Text('${_messages.length} رسالة'),
-                visualDensity: VisualDensity.compact,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.secondaryContainer,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.chat_rounded,
+                      size: 16,
+                      color: theme.colorScheme.secondary,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${_messages.length}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: theme.colorScheme.onSecondaryContainer,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -138,19 +179,36 @@ class ChatScreenState extends State<ChatScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.chat_bubble_outline, size: 64, color: Colors.grey.shade300),
-                        const SizedBox(height: 12),
+                        Container(
+                          width: 72,
+                          height: 72,
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Icon(
+                            Icons.chat_bubble_outline_rounded,
+                            size: 36,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
                         Text(
                           'لا توجد رسائل بعد...\nأرسل أول رسالة في المجموعة!',
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
                         ),
                       ],
                     ),
                   )
                 : ListView.builder(
                     controller: _scrollController,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                     itemCount: _messages.length,
                     itemBuilder: (context, index) {
                       final msg = _messages[index];
@@ -173,20 +231,33 @@ class ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildInputBar() {
+    final theme = Theme.of(context);
     return Container(
       decoration: BoxDecoration(
-        color: Theme.of(context).scaffoldBackgroundColor,
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, -2))],
+        color: theme.colorScheme.surface,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 6,
+            offset: const Offset(0, -2),
+          ),
+        ],
       ),
       child: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
           child: Row(
             children: [
-              CircleAvatar(
-                radius: 18,
-                backgroundColor: Colors.grey.shade100,
-                child: Text(_myIcon, style: const TextStyle(fontSize: 18)),
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Center(
+                  child: Text(_myIcon, style: const TextStyle(fontSize: 18)),
+                ),
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -198,25 +269,39 @@ class ChatScreenState extends State<ChatScreen> {
                   decoration: InputDecoration(
                     hintText: 'اكتب رسالة...',
                     filled: true,
-                    fillColor: Colors.grey.shade100,
+                    fillColor: theme.colorScheme.surfaceContainerHighest,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(24),
                       borderSide: BorderSide.none,
                     ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
                   ),
                   onSubmitted: (_) => _sendMessage(),
                 ),
               ),
               const SizedBox(width: 8),
-              IconButton.filled(
-                onPressed: _isSending ? null : _sendMessage,
-                icon: _isSending
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.send_rounded),
-                style: IconButton.styleFrom(
-                  backgroundColor: const Color(0xFF1565C0),
-                  foregroundColor: Colors.white,
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  color: theme.colorScheme.primary,
+                ),
+                child: IconButton(
+                  onPressed: _isSending ? null : _sendMessage,
+                  icon: _isSending
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.send_rounded),
+                  color: Colors.white,
+                  iconSize: 22,
                 ),
               ),
             ],
@@ -230,22 +315,64 @@ class ChatScreenState extends State<ChatScreen> {
     return NavigationBar(
       selectedIndex: 1,
       destinations: const [
-        NavigationDestination(icon: Icon(Icons.map_outlined), selectedIcon: Icon(Icons.map), label: 'الخريطة'),
-        NavigationDestination(icon: Icon(Icons.chat_bubble_outline), selectedIcon: Icon(Icons.chat_bubble), label: 'الدردشة'),
-        NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'الإعدادات'),
+        NavigationDestination(
+          icon: Icon(Icons.map_outlined),
+          selectedIcon: Icon(Icons.map_rounded),
+          label: 'الخريطة',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.chat_bubble_outline_rounded),
+          selectedIcon: Icon(Icons.chat_bubble_rounded),
+          label: 'الدردشة',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.block_outlined),
+          selectedIcon: Icon(Icons.block_rounded),
+          label: 'القائمة السوداء',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.settings_outlined),
+          selectedIcon: Icon(Icons.settings_rounded),
+          label: 'الإعدادات',
+        ),
       ],
       onDestinationSelected: (index) {
         if (index == 0) {
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => MapScreen(groupCode: widget.groupCode, userName: widget.userName)));
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => MapScreen(
+                groupCode: widget.groupCode,
+                userName: widget.userName,
+              ),
+            ),
+          );
         } else if (index == 2) {
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => SettingsScreen(groupCode: widget.groupCode, userName: widget.userName)));
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => BlacklistScreen(
+                groupCode: widget.groupCode,
+                userName: widget.userName,
+              ),
+            ),
+          );
+        } else if (index == 3) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => SettingsScreen(
+                groupCode: widget.groupCode,
+                userName: widget.userName,
+              ),
+            ),
+          );
         }
       },
     );
   }
 }
 
-/// A single chat message bubble.
 class _MessageBubble extends StatelessWidget {
   final String message;
   final String name;
@@ -269,42 +396,73 @@ class _MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Column(
-        crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        crossAxisAlignment: isMe
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               if (!isMe) ...[
-                CircleAvatar(
-                  radius: 12,
-                  backgroundColor: Colors.grey.shade100,
-                  child: Text(icon.isNotEmpty ? icon : '🧑', style: const TextStyle(fontSize: 14)),
+                Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Center(
+                    child: Text(
+                      icon.isNotEmpty ? icon : '🧑',
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  ),
                 ),
                 const SizedBox(width: 6),
               ],
               Text(
                 isMe ? 'أنت' : name,
-                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: isMe ? const Color(0xFF1565C0) : Colors.grey.shade700),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: isMe
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurfaceVariant,
+                ),
               ),
               if (isMe) ...[
                 const SizedBox(width: 6),
-                CircleAvatar(
-                  radius: 12,
-                  backgroundColor: Colors.grey.shade100,
-                  child: Text(icon.isNotEmpty ? icon : '🧑', style: const TextStyle(fontSize: 14)),
+                Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Center(
+                    child: Text(
+                      icon.isNotEmpty ? icon : '🧑',
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  ),
                 ),
               ],
             ],
           ),
           const SizedBox(height: 4),
           Container(
-            constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.75,
+            ),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: isMe ? const Color(0xFF1565C0) : Colors.grey.shade100,
+              color: isMe
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.only(
                 topLeft: const Radius.circular(16),
                 topRight: const Radius.circular(16),
@@ -318,12 +476,20 @@ class _MessageBubble extends StatelessWidget {
                 Text(
                   message,
                   textDirection: TextDirection.rtl,
-                  style: TextStyle(fontSize: 14, color: isMe ? Colors.white : Colors.black87),
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: isMe ? Colors.white : theme.colorScheme.onSurface,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   _formatTime(timestamp),
-                  style: TextStyle(fontSize: 10, color: isMe ? Colors.white60 : Colors.grey.shade500),
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: isMe
+                        ? Colors.white60
+                        : theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),

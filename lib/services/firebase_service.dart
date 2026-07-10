@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
 
@@ -42,8 +43,9 @@ class FirebaseService {
       if (speed > 0) data['last_moved_at'] = ServerValue.timestamp;
       await ref.set(data);
       await ref.onDisconnect().remove();
-    } catch (e) {
+    } catch (e, s) {
       debugPrint('[FirebaseDB] writeLocationToFirebase failed: $e');
+      FirebaseCrashlytics.instance.recordError(e, s, fatal: false);
     }
   }
 
@@ -53,7 +55,9 @@ class FirebaseService {
   /// Anonymous sign-in — no email/password required.
   Future<void> signInAnonymously() async {
     if (_auth.currentUser != null) {
-      debugPrint('[FirebaseAuth] Already signed in: uid=${_auth.currentUser!.uid}');
+      debugPrint(
+        '[FirebaseAuth] Already signed in: uid=${_auth.currentUser!.uid}',
+      );
       return;
     }
     debugPrint('[FirebaseAuth] Signing in anonymously...');
@@ -65,7 +69,9 @@ class FirebaseService {
   /// Throws a descriptive error if sign-in failed or the UID is null.
   Future<void> _ensureAuthenticated() async {
     if (_auth.currentUser == null) {
-      debugPrint('[FirebaseAuth] No current user — attempting anonymous sign-in.');
+      debugPrint(
+        '[FirebaseAuth] No current user — attempting anonymous sign-in.',
+      );
       await signInAnonymously();
     }
     final uid = _auth.currentUser?.uid;
@@ -97,7 +103,9 @@ class FirebaseService {
       final metaRef = _db.child('live/$code/_meta');
       final existing = await metaRef.get();
       if (!existing.exists) {
-        debugPrint('[FirebaseDB] Writing group meta: live/$code/_meta (uid=$userId)');
+        debugPrint(
+          '[FirebaseDB] Writing group meta: live/$code/_meta (uid=$userId)',
+        );
         await metaRef.set({
           'created': ServerValue.timestamp,
           'createdBy': userId,
@@ -105,7 +113,9 @@ class FirebaseService {
         debugPrint('[FirebaseDB] Group created successfully: $code');
         return code;
       }
-      debugPrint('[FirebaseDB] Code $code already in use, retrying (attempt ${attempt + 1})...');
+      debugPrint(
+        '[FirebaseDB] Code $code already in use, retrying (attempt ${attempt + 1})...',
+      );
     }
     // Extremely unlikely fallback — surface a clear error.
     throw Exception('تعذّر إنشاء كود فريد بعد عدة محاولات. حاول مرة أخرى.');
@@ -146,12 +156,28 @@ class FirebaseService {
       };
       if (icon != null && icon.isNotEmpty) data['icon'] = icon;
       if (speed > 0) data['last_moved_at'] = ServerValue.timestamp;
-      await ref.set(data);
+      await ref.update(data);
       await ref.onDisconnect().remove();
-    } catch (e) {
+    } catch (e, s) {
       // AUDIT-A: a failed upload (network glitch, permission) should NOT crash
       // the location stream. Log and move on — the next update will retry.
-      debugPrint('[FirebaseDB] updateUserLocation failed (will retry next tick): $e');
+      debugPrint(
+        '[FirebaseDB] updateUserLocation failed (will retry next tick): $e',
+      );
+      FirebaseCrashlytics.instance.recordError(e, s, fatal: false);
+    }
+  }
+
+  /// Update ONLY the user's display name (no location change).
+  Future<void> updateUserName({
+    required String groupCode,
+    required String newName,
+  }) async {
+    try {
+      await _ensureAuthenticated();
+      await _db.child('live/$groupCode/$userId/name').set(newName);
+    } catch (e) {
+      debugPrint('[FirebaseDB] updateUserName failed: $e');
     }
   }
 
@@ -180,6 +206,35 @@ class FirebaseService {
   }
 
   // ──────────────────── Chat Messages ────────────────────
+
+  /// Create a minimal presence node when a user joins a group, so the
+  /// security rules (which check root.child(...auth.uid).exists()) pass
+  /// before the first GPS location is written.
+  Future<void> createPresenceNode({
+    required String groupCode,
+    required String name,
+    String? icon,
+  }) async {
+    try {
+      await _ensureAuthenticated();
+      final ref = _db.child('live/$groupCode/$userId');
+      final data = <String, dynamic>{
+        'name': name,
+        'lat': 0.0,
+        'lng': 0.0,
+        'timestamp': ServerValue.timestamp,
+        'online': true,
+        'speed': 0,
+      };
+      if (icon != null && icon.isNotEmpty) data['icon'] = icon;
+      await ref.set(data);
+      await ref.onDisconnect().remove();
+      debugPrint('[FirebaseDB] Presence node created: live/$groupCode/$userId');
+    } catch (e, s) {
+      debugPrint('[FirebaseDB] createPresenceNode failed: $e');
+      FirebaseCrashlytics.instance.recordError(e, s, fatal: false);
+    }
+  }
 
   /// Send a chat message to the group.
   Future<void> sendMessage({
@@ -231,8 +286,9 @@ class FirebaseService {
         'speed': speed,
         'timestamp': ServerValue.timestamp,
       });
-    } catch (e) {
+    } catch (e, s) {
       debugPrint('[FirebaseDB] writeHistoryPoint failed: $e');
+      FirebaseCrashlytics.instance.recordError(e, s, fatal: false);
     }
   }
 
@@ -251,7 +307,9 @@ class FirebaseService {
           .limitToLast(limit)
           .get();
       if (!snap.exists) return [];
-      final data = snap.value as Map<dynamic, dynamic>?;
+      final data = snap.value is Map
+          ? snap.value as Map<dynamic, dynamic>
+          : null;
       if (data == null) return [];
       final points = <Map<String, dynamic>>[];
       data.forEach((key, value) {
@@ -263,7 +321,9 @@ class FirebaseService {
           });
         }
       });
-      points.sort((a, b) => (a['timestamp'] as int).compareTo(b['timestamp'] as int));
+      points.sort(
+        (a, b) => (a['timestamp'] as int).compareTo(b['timestamp'] as int),
+      );
       return points;
     } catch (e) {
       debugPrint('[FirebaseDB] getHistory failed: $e');

@@ -26,6 +26,12 @@ class LocalStorageService {
     await prefs.setString(_groupCodeKey, groupCode);
   }
 
+  /// Update only the user's display name (without touching group code).
+  Future<void> saveUserName(String name) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_userNameKey, name);
+  }
+
   Future<String?> getUserName() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_userNameKey);
@@ -38,8 +44,7 @@ class LocalStorageService {
 
   Future<bool> hasSavedSession() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.containsKey(_userNameKey) &&
-        prefs.containsKey(_groupCodeKey);
+    return prefs.containsKey(_userNameKey) && prefs.containsKey(_groupCodeKey);
   }
 
   Future<void> clearSession() async {

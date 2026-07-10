@@ -43,6 +43,20 @@ app.*.map.json
 .publish_config.json
 scripts/.publish_config.json
 
+# Unauthorized/security-risk files — never commit these
+*_key_search*.js
+*_scan.js
+*_check.js
+*_login.js
+visible_browser*.js
+gh_check.js
+yt_search.js
+found_keys.txt
+digital_products_scan/
+playwright_test.png
+youtube_music_search.png
+test-results/
+
 # Android Studio will place build artifacts here
 /android/app/debug
 /android/app/profile

@@ -1,17 +1,25 @@
 import 'dart:async';
 import 'dart:ui';
+import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'firebase_options.dart';
 import 'screens/splash_screen.dart';
 import 'services/firebase_service.dart';
+import 'services/alert_service.dart';
+import 'services/proximity_service.dart';
+import 'services/app_settings.dart';
+import 'services/theme_service.dart';
 
 /// ID of the notification channel used by the foreground location service.
 /// Must match the notificationChannelId passed to AndroidConfiguration below.
@@ -24,9 +32,39 @@ const Duration kLocationInterval = Duration(seconds: 3);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // App Check — Play Integrity on release, Debug provider on debug builds.
+  // Enforcement must be enabled manually in the Firebase Console > App Check.
+  await FirebaseAppCheck.instance.activate(
+    androidProvider: kDebugMode
+        ? AndroidProvider.debug
+        : AndroidProvider.playIntegrity,
   );
+
+  // Pass through unhandled Flutter errors to Crashlytics
+  FlutterError.onError = (errorDetails) {
+    FirebaseCrashlytics.instance.recordFlutterFatalError(errorDetails);
+  };
+
+  // Pass through unhandled asynchronous Dart errors
+  PlatformDispatcher.instance.onError = (error, stack) {
+    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+    return true;
+  };
+
+  // Enable Firebase Realtime Database offline persistence (caches data
+  // locally so the app works without internet; syncs on reconnect).
+  FirebaseDatabase.instance.setPersistenceEnabled(true);
+  FirebaseDatabase.instance.setPersistenceCacheSizeBytes(
+    10 * 1024 * 1024,
+  ); // 10 MB
+
+  // Request battery optimization exemption so background location survives
+  // Doze mode on Android 6+. This is non-blocking — the user can skip it.
+  if (await Permission.ignoreBatteryOptimizations.status.isDenied) {
+    await Permission.ignoreBatteryOptimizations.request();
+  }
 
   // Create the foreground-service notification channel BEFORE configuring
   // the service. On Android 8+, startForeground() crashes with
@@ -51,7 +89,8 @@ Future<void> _createLocationNotificationChannel() async {
   );
   await plugin
       .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>()
+        AndroidFlutterLocalNotificationsPlugin
+      >()
       ?.createNotificationChannel(channel);
 }
 
@@ -97,8 +136,13 @@ void onStart(ServiceInstance service) async {
   DartPluginRegistrant.ensureInitialized();
 
   // Each isolate needs its own Firebase initialization.
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // App Check for the background isolate.
+  await FirebaseAppCheck.instance.activate(
+    androidProvider: kDebugMode
+        ? AndroidProvider.debug
+        : AndroidProvider.playIntegrity,
   );
 
   debugPrint('[BgService] onStart invoked.');
@@ -111,11 +155,16 @@ void onStart(ServiceInstance service) async {
     debugPrint('[BgService] Wake lock failed: $e');
   }
 
-  StreamSubscription<DatabaseEvent>? _chatSubBg;
-  int _foregroundNotifCounter = 0;
+  StreamSubscription<DatabaseEvent>? chatSubBg;
+  StreamSubscription<DatabaseEvent>? alertsSubBg;
+  int foregroundNotifCounter = 0;
+  final proximityBg = ProximityService(FlutterLocalNotificationsPlugin());
+  final alertService = AlertService();
+  List<AlertData> cachedAlerts = [];
   service.on('stop').listen((event) async {
     debugPrint('[BgService] stop requested.');
-    _chatSubBg?.cancel();
+    chatSubBg?.cancel();
+    alertsSubBg?.cancel();
     await WakelockPlus.disable();
     service.stopSelf();
   });
@@ -124,11 +173,11 @@ void onStart(ServiceInstance service) async {
   // Android 12+ deep-doze can suspend timer-based tasks even in foreground
   // services. The wake lock + this periodic tick keeps the CPU alive.
   Timer.periodic(const Duration(seconds: 30), (_) async {
-    _foregroundNotifCounter++;
+    foregroundNotifCounter++;
     try {
       await WakelockPlus.enable();
     } catch (_) {}
-    debugPrint('[BgService] Alive tick #$_foregroundNotifCounter');
+    debugPrint('[BgService] Alive tick #$foregroundNotifCounter');
   });
 
   // Read saved session (group code + user name) from shared_preferences.
@@ -164,8 +213,10 @@ void onStart(ServiceInstance service) async {
     );
     await notifPlugin.initialize(notifSettings);
     // Ensure the channel exists for chat notifications
-    final androidNotif = notifPlugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final androidNotif = notifPlugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     const chatChannel = AndroidNotificationChannel(
       'proximity_channel_v3',
       'Proximity Alerts',
@@ -177,10 +228,12 @@ void onStart(ServiceInstance service) async {
     // ── Chat message listener (shows notification when app is closed) ──
     try {
       final chatRef = FirebaseDatabase.instance.ref('live/$groupCode/_chat');
-      _chatSubBg = chatRef.orderByChild('timestamp').onValue.listen((event) {
+      chatSubBg = chatRef.orderByChild('timestamp').onValue.listen((event) {
         final snap = event.snapshot;
         if (!snap.exists) return;
-        final data = snap.value as Map<dynamic, dynamic>?;
+        final data = snap.value is Map
+            ? snap.value as Map<dynamic, dynamic>
+            : null;
         if (data == null) return;
         final nowMs = DateTime.now().millisecondsSinceEpoch;
         data.forEach((key, value) {
@@ -222,11 +275,46 @@ void onStart(ServiceInstance service) async {
       debugPrint('[BgService] Chat listener setup failed: $e');
     }
 
+    // ── Expired marker cleanup (run once on start) ──
+    try {
+      final deleted = await alertService.cleanupExpiredAlerts(groupCode);
+      final msgDeleted = await alertService.cleanupExpiredMessages(groupCode);
+      if (deleted > 0 || msgDeleted > 0) {
+        debugPrint(
+          '[BgService] Cleanup: $deleted alerts, $msgDeleted messages removed',
+        );
+      }
+    } catch (_) {}
+
+    // ── Alert marker listener for proximity checking ──
+    try {
+      final alertsRef = FirebaseDatabase.instance.ref(
+        'live/$groupCode/_alerts',
+      );
+      alertsSubBg = alertsRef.onValue.listen((event) {
+        final snap = event.snapshot;
+        if (!snap.exists) {
+          cachedAlerts = [];
+          return;
+        }
+        final data = snap.value as Map<dynamic, dynamic>? ?? {};
+        final list = <AlertData>[];
+        data.forEach((key, val) {
+          if (val is Map) {
+            list.add(AlertData.fromMap(val, key as String, groupCode));
+          }
+        });
+        cachedAlerts = list;
+      });
+    } catch (e) {
+      debugPrint('[BgService] Alerts listener setup failed: $e');
+    }
+
     // ── THE GPS LOOP: fires every [kLocationInterval] (3s) ──
     // This is what keeps Firebase updated even when the app is closed.
-    int _gpsTick = 0;
+    int gpsTick = 0;
     Timer.periodic(kLocationInterval, (timer) async {
-      _gpsTick++;
+      gpsTick++;
       try {
         // Quick permission/GPS check — skip silently if unavailable so the
         // timer doesn't spam errors when GPS is off.
@@ -256,13 +344,30 @@ void onStart(ServiceInstance service) async {
         );
 
         // Push a history point every 10th tick (~30s) for route tracking.
-        if (_gpsTick % 10 == 0) {
+        if (gpsTick % 10 == 0) {
           await FirebaseService.writeHistoryPoint(
             groupCode: groupCode,
             userId: uid,
             lat: position.latitude,
             lng: position.longitude,
             speed: position.speed,
+          );
+        }
+
+        // Proximity check against alert markers (run every ~6s to save battery)
+        if (gpsTick % 2 == 0 && cachedAlerts.isNotEmpty) {
+          final bgSettings = AppSettings();
+          proximityBg.checkProximity(
+            myLat: position.latitude,
+            myLng: position.longitude,
+            alerts: cachedAlerts,
+            groupCode: groupCode,
+            alertDistance: bgSettings.alertDistance,
+            enabledTypes: bgSettings.enabledAlertTypes.split(','),
+            enableNotification: bgSettings.alertNotificationEnabled,
+            enableVibration: bgSettings.alertVibrationEnabled,
+            enableSound: bgSettings.alertSoundEnabled,
+            enableVoice: bgSettings.alertVoiceEnabled,
           );
         }
 
@@ -276,12 +381,14 @@ void onStart(ServiceInstance service) async {
           'speed=${position.speed.toStringAsFixed(1)}m/s, '
           'written at $hh:$mm:$ss',
         );
-      } catch (e) {
+      } catch (e, s) {
         debugPrint('[BgService] Tick error: $e');
+        FirebaseCrashlytics.instance.recordError(e, s, fatal: false);
       }
     });
-  } catch (e) {
+  } catch (e, s) {
     debugPrint('[BgService] Auth/setup failed: $e');
+    FirebaseCrashlytics.instance.recordError(e, s, fatal: false);
   }
 }
 
@@ -290,18 +397,42 @@ bool onIosBackground(ServiceInstance service) {
   return false;
 }
 
-class GlovoMateApp extends StatelessWidget {
+class GlovoMateApp extends StatefulWidget {
   const GlovoMateApp({super.key});
 
   @override
+  State<GlovoMateApp> createState() => _GlovoMateAppState();
+}
+
+class _GlovoMateAppState extends State<GlovoMateApp> {
+  final ThemeService _themeService = ThemeService();
+
+  @override
+  void initState() {
+    super.initState();
+    _themeService.addListener(_onThemeChanged);
+    _themeService.load();
+  }
+
+  @override
+  void dispose() {
+    _themeService.removeListener(_onThemeChanged);
+    super.dispose();
+  }
+
+  void _onThemeChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final accent = _themeService.accentColor;
     return MaterialApp(
       title: 'GlovoMate',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorSchemeSeed: const Color(0xFF1565C0),
-        useMaterial3: true,
-      ),
+      theme: _themeService.lightTheme(accent),
+      darkTheme: _themeService.darkTheme(accent),
+      themeMode: _themeService.flutterThemeMode,
       home: const SplashScreen(),
     );
   }

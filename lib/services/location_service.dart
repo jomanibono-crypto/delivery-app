@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import '../main.dart' show kLocationInterval;
 
@@ -42,11 +41,11 @@ class LocationService {
   /// - [distanceFilter] = 0 so movement is never a gate; the interval alone
   ///   decides when an update is emitted.
   LocationSettings get _locationSettings => AndroidSettings(
-        accuracy: LocationAccuracy.high,
-        intervalDuration: kLocationInterval,
-        distanceFilter: 0,
-        foregroundNotificationConfig: null,
-      );
+    accuracy: LocationAccuracy.high,
+    intervalDuration: kLocationInterval,
+    distanceFilter: 0,
+    foregroundNotificationConfig: null,
+  );
 
   /// Initialize location services and start tracking.
   ///
@@ -80,12 +79,13 @@ class LocationService {
     _positionController.add(position);
 
     // ── Start listening for position updates (every 5 seconds) ──
-    _positionSubscription = Geolocator.getPositionStream(
-      locationSettings: _locationSettings,
-    ).listen((Position position) {
-      _currentPosition = position;
-      _positionController.add(position);
-    });
+    _positionSubscription =
+        Geolocator.getPositionStream(
+          locationSettings: _locationSettings,
+        ).listen((Position position) {
+          _currentPosition = position;
+          _positionController.add(position);
+        });
 
     return position;
   }

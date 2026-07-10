@@ -3,6 +3,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:android_intent_plus/android_intent.dart';
 import 'local_storage_service.dart';
+import '../widgets/permission_item.dart';
 
 /// Result of a permission check / request flow.
 class PermissionResult {
@@ -88,6 +89,7 @@ class PermissionService {
     );
 
     // ── Friendly explanation dialog (cancelable) ──
+    if (!context.mounted) return checkCurrentStatus();
     final proceed = await _showExplanationDialog(context, current);
     if (!proceed) {
       // User declined — return current status without crashing.
@@ -127,25 +129,31 @@ class PermissionService {
     // Build the list of missing items to display.
     final missing = <Widget>[];
     if (!status.locationAlwaysGranted) {
-      missing.add(const _PermissionItem(
-        icon: Icons.location_on,
-        title: 'الموقع دائماً',
-        description: 'يتيح تتبع موقعك حتى عندما يكون التطبيق مغلقاً',
-      ));
+      missing.add(
+        const PermissionItem(
+          icon: Icons.location_on,
+          title: 'الموقع دائماً',
+          description: 'يتيح تتبع موقعك حتى عندما يكون التطبيق مغلقاً',
+        ),
+      );
     }
     if (!status.batteryOptimizationIgnored) {
-      missing.add(const _PermissionItem(
-        icon: Icons.battery_charging_full,
-        title: 'إيقاف تحسين البطارية',
-        description: 'يمنع النظام من إغلاق التطبيق في الخلفية',
-      ));
+      missing.add(
+        const PermissionItem(
+          icon: Icons.battery_charging_full,
+          title: 'إيقاف تحسين البطارية',
+          description: 'يمنع النظام من إغلاق التطبيق في الخلفية',
+        ),
+      );
     }
     if (!status.gpsEnabled) {
-      missing.add(const _PermissionItem(
-        icon: Icons.gps_off,
-        title: 'تفعيل خدمة الموقع (GPS)',
-        description: 'خدمة الموقع معطّلة حالياً على الجهاز',
-      ));
+      missing.add(
+        const PermissionItem(
+          icon: Icons.gps_off,
+          title: 'تفعيل خدمة الموقع (GPS)',
+          description: 'خدمة الموقع معطّلة حالياً على الجهاز',
+        ),
+      );
     }
 
     return await showDialog<bool>(
@@ -154,8 +162,9 @@ class PermissionService {
       builder: (ctx) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           title: const Row(
             children: [
               Icon(Icons.shield_outlined, color: Color(0xFF1565C0)),
@@ -208,7 +217,7 @@ class PermissionService {
         debugPrint('[Perm] Location "Always" granted.');
       } else {
         debugPrint('[Perm] Location "Always" denied: $result');
-        _showLocationWarning(context);
+        if (context.mounted) _showLocationWarning(context);
       }
     } catch (e) {
       debugPrint('[Perm] Error requesting location always: $e');
@@ -248,7 +257,8 @@ class PermissionService {
           textDirection: TextDirection.rtl,
           child: AlertDialog(
             shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16)),
+              borderRadius: BorderRadius.circular(16),
+            ),
             title: const Row(
               children: [
                 Icon(Icons.battery_alert, color: Colors.orange),
@@ -283,15 +293,13 @@ class PermissionService {
       if (!proceed) return;
 
       // ── Step 1: Try REQUEST_IGNORE_BATTERY_OPTIMIZATIONS ──
-      bool opened = false;
       try {
         final intent = AndroidIntent(
           action: 'android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
-          data: 'package:com.example.glovo_mate',
+          data: 'package:com.glovo_mate.app',
         );
         await intent.launch();
         debugPrint('[Perm] REQUEST_IGNORE_BATTERY_OPTIMIZATIONS opened.');
-        opened = true;
         // Wait a moment then fallback to app details
         await Future.delayed(const Duration(milliseconds: 500));
       } catch (e) {
@@ -302,7 +310,7 @@ class PermissionService {
       try {
         final intent = AndroidIntent(
           action: 'android.settings.APPLICATION_DETAILS_SETTINGS',
-          data: 'package:com.example.glovo_mate',
+          data: 'package:com.glovo_mate.app',
         );
         await intent.launch();
         debugPrint('[Perm] App battery details opened.');
@@ -329,7 +337,8 @@ class PermissionService {
         textDirection: TextDirection.rtl,
         child: AlertDialog(
           shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16)),
+            borderRadius: BorderRadius.circular(16),
+          ),
           title: const Row(
             children: [
               Icon(Icons.notifications_active, color: Color(0xFF1565C0)),
@@ -366,7 +375,7 @@ class PermissionService {
       final intent = AndroidIntent(
         action: 'android.settings.APP_NOTIFICATION_SETTINGS',
         arguments: <String, dynamic>{
-          'android.provider.extra.APP_PACKAGE': 'com.example.glovo_mate',
+          'android.provider.extra.APP_PACKAGE': 'com.glovo_mate.app',
         },
       );
       await intent.launch();
@@ -377,7 +386,7 @@ class PermissionService {
       try {
         final intent = AndroidIntent(
           action: 'android.settings.APPLICATION_DETAILS_SETTINGS',
-          data: 'package:com.example.glovo_mate',
+          data: 'package:com.glovo_mate.app',
         );
         await intent.launch();
       } catch (e2) {
@@ -423,7 +432,8 @@ class PermissionService {
           textDirection: TextDirection.rtl,
           child: AlertDialog(
             shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16)),
+              borderRadius: BorderRadius.circular(16),
+            ),
             title: const Row(
               children: [
                 Icon(Icons.layers, color: Color(0xFF1565C0)),
@@ -481,7 +491,8 @@ class PermissionService {
           textDirection: TextDirection.rtl,
           child: AlertDialog(
             shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16)),
+              borderRadius: BorderRadius.circular(16),
+            ),
             title: const Row(
               children: [
                 Icon(Icons.settings, color: Colors.orange),
@@ -514,10 +525,12 @@ class PermissionService {
       try {
         final intent = AndroidIntent(
           action: 'android.settings.APPLICATION_DETAILS_SETTINGS',
-          data: 'package:com.example.glovo_mate',
+          data: 'package:com.glovo_mate.app',
         );
         await intent.launch();
-        debugPrint('[Perm] App details settings opened for SYSTEM_ALERT_WINDOW.');
+        debugPrint(
+          '[Perm] App details settings opened for SYSTEM_ALERT_WINDOW.',
+        );
       } catch (e) {
         debugPrint('[Perm] Failed to open app details: $e');
       }
@@ -527,39 +540,5 @@ class PermissionService {
       debugPrint('[Perm] SYSTEM_ALERT_WINDOW request error: $e');
       return false;
     }
-  }
-}
-
-/// A styled row widget showing a permission item.
-class _PermissionItem extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String description;
-
-  const _PermissionItem({
-    required this.icon,
-    required this.title,
-    required this.description,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 20, color: const Color(0xFF1565C0)),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-              Text(description,
-                  style: const TextStyle(fontSize: 12, color: Colors.grey)),
-            ],
-          ),
-        ),
-      ],
-    );
   }
 }

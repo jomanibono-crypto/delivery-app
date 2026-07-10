@@ -1,4 +1,4 @@
-package com.example.glovo_mate
+package com.glovo_mate.app
 
 import io.flutter.embedding.android.FlutterActivity
 

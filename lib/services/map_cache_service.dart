@@ -1,11 +1,11 @@
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import '../config/mapbox_config.dart';
 
 /// Manages persistent map-tile caching using `flutter_cache_manager`.
 ///
@@ -22,11 +22,9 @@ class MapCacheService {
 
   static final DefaultCacheManager _cache = DefaultCacheManager();
 
-  /// Mapbox tile URL (used for pre-warming). The map screen passes its own
-  /// current URL template to [tileProvider], so this is only for pre-warming.
-  static const String _mapboxTileUrl =
-      'https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/512/{z}/{x}/{y}@2x'
-      '?access_token=pk.eyJ1IjoieWFzc2lueDIwMDEiLCJhIjoiY21xeHNhaWt3MW9qdTJ0c2FmbXF2MGFpZiJ9.7HoVzsASKk-yD9ynVJVLXQ';
+  /// Mapbox tile URL (used for pre-warming) — reads token from
+  /// [MapboxConfig] which is sourced via --dart-define=MAPBOX_TOKEN.
+  static const String _mapboxTileUrl = MapboxConfig.mapboxTileUrl;
 
   /// Build a caching [TileProvider] for the given URL template.
   /// Tiles are read from disk cache first, then network.
@@ -93,8 +91,7 @@ class _CachingTileProvider extends TileProvider {
 }
 
 /// [ImageProvider] that loads a tile from disk cache (if fresh) or network.
-class _CachedTileImageProvider
-    extends ImageProvider<_CachedTileImageProvider> {
+class _CachedTileImageProvider extends ImageProvider<_CachedTileImageProvider> {
   _CachedTileImageProvider(this.url, this._cache);
 
   final String url;
@@ -107,7 +104,9 @@ class _CachedTileImageProvider
 
   @override
   ImageStreamCompleter loadImage(
-      _CachedTileImageProvider key, ImageDecoderCallback decode) {
+    _CachedTileImageProvider key,
+    ImageDecoderCallback decode,
+  ) {
     return MultiFrameImageStreamCompleter(
       codec: _loadBytes(key).then((bytes) async {
         final buffer = await ImmutableBuffer.fromUint8List(bytes);

@@ -43,6 +43,12 @@ class _GroupScreenState extends State<GroupScreen> {
       final userName = _nameController.text.trim();
       await _localStorage.saveSession(userName: userName, groupCode: code);
 
+      // Create presence node so security rules allow reading members
+      await _firebaseService.createPresenceNode(
+        groupCode: code,
+        name: userName,
+      );
+
       // Copy code to clipboard for easy sharing
       await Clipboard.setData(ClipboardData(text: code));
 
@@ -104,6 +110,9 @@ class _GroupScreenState extends State<GroupScreen> {
       // Persist session so the user skips the form next launch.
       await _localStorage.saveSession(userName: name, groupCode: code);
 
+      // Create presence node so security rules allow reading members
+      await _firebaseService.createPresenceNode(groupCode: code, name: name);
+
       if (mounted) {
         Navigator.pushReplacement(
           context,
@@ -143,62 +152,63 @@ class _GroupScreenState extends State<GroupScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F9FF),
+      backgroundColor: theme.colorScheme.surface,
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Logo
                 Container(
-                  width: 90,
-                  height: 90,
+                  width: 88,
+                  height: 88,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1565C0),
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFFFF9800), Color(0xFFEF6C00)],
+                    ),
                     borderRadius: BorderRadius.circular(24),
+                    boxShadow: [
+                      BoxShadow(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.3),
+                        blurRadius: 16,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
                   ),
                   child: const Icon(
                     Icons.group_rounded,
-                    size: 48,
+                    size: 44,
                     color: Colors.white,
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 28),
                 Text(
                   'مرحباً بك في GlovoMate',
                   style: theme.textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.bold,
-                    color: const Color(0xFF1A237E),
+                    color: theme.colorScheme.onSurface,
                   ),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   'أنشئ مجموعة أو انضم لمجموعة موجودة',
                   style: theme.textTheme.bodyMedium?.copyWith(
-                    color: Colors.grey[600],
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
-                const SizedBox(height: 36),
-
-                // Name field
+                const SizedBox(height: 40),
                 TextField(
                   controller: _nameController,
                   textDirection: TextDirection.rtl,
                   decoration: InputDecoration(
                     labelText: 'اسمك',
                     prefixIcon: const Icon(Icons.person_outline),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    filled: true,
-                    fillColor: Colors.white,
                   ),
                 ),
                 const SizedBox(height: 16),
-
-                // Group code field
                 TextField(
                   controller: _codeController,
                   maxLength: 6,
@@ -208,32 +218,33 @@ class _GroupScreenState extends State<GroupScreen> {
                     labelText: 'كود المجموعة',
                     counterText: '',
                     prefixIcon: const Icon(Icons.vpn_key_outlined),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    filled: true,
-                    fillColor: Colors.white,
                   ),
                 ),
-                const SizedBox(height: 8),
-
-                // Error message
                 if (_errorMessage != null)
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text(
-                      _errorMessage!,
-                      style: const TextStyle(color: Colors.red, fontSize: 13),
+                    padding: const EdgeInsets.only(top: 12, bottom: 4),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.error_outline,
+                          size: 16,
+                          color: theme.colorScheme.error,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          _errorMessage!,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.error,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-
-                const SizedBox(height: 8),
-
-                // Create Group button
+                const SizedBox(height: 24),
                 SizedBox(
                   width: double.infinity,
-                  height: 50,
-                  child: ElevatedButton.icon(
+                  height: 52,
+                  child: FilledButton.icon(
                     onPressed: _isLoading ? null : _createGroup,
                     icon: _isLoading
                         ? const SizedBox(
@@ -244,23 +255,14 @@ class _GroupScreenState extends State<GroupScreen> {
                               color: Colors.white,
                             ),
                           )
-                        : const Icon(Icons.add_circle_outline),
+                        : const Icon(Icons.add_circle_outline, size: 22),
                     label: const Text('إنشاء مجموعة جديدة'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1565C0),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
                   ),
                 ),
-                const SizedBox(height: 12),
-
-                // Join Group button
+                const SizedBox(height: 14),
                 SizedBox(
                   width: double.infinity,
-                  height: 50,
+                  height: 52,
                   child: FilledButton.tonalIcon(
                     onPressed: _isLoading ? null : _joinGroup,
                     icon: _isLoading
@@ -269,13 +271,8 @@ class _GroupScreenState extends State<GroupScreen> {
                             height: 20,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.login),
+                        : const Icon(Icons.login, size: 22),
                     label: const Text('الانضمام للمجموعة'),
-                    style: FilledButton.styleFrom(
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
                   ),
                 ),
               ],

@@ -12,16 +12,15 @@
 class MapboxConfig {
   MapboxConfig._();
 
-  /// Public Mapbox access token (pk.*).
+  /// Mapbox access token supplied via --dart-define=MAPBOX_TOKEN.
   ///
+  /// Falls back to empty string if not defined (OSM will be used instead).
   /// NOTE: If this token is rejected (HTTP 401 "Not Authorized - Invalid Token"),
-  /// the TileLayer will fall back to OpenStreetMap automatically. To use Mapbox,
-  /// verify in your Mapbox Console that:
-  ///   1. The token exists and is not revoked/regenerated.
-  ///   2. It has no URL restrictions that exclude api.mapbox.com.
-  ///   3. The account is activated for the Styles API / Raster Tiles.
-  static const String accessToken =
-      'pk.eyJ1IjoieWFzc2lueDIwMDEiLCJhIjoiY21xeHNhaWt3MW9qdTJ0c2FmbXF2MGFpZiJ9.7HoVzsASKk-yD9ynVJVLXQ';
+  /// the TileLayer will fall back to OpenStreetMap automatically.
+  static const String accessToken = String.fromEnvironment(
+    'MAPBOX_TOKEN',
+    defaultValue: '',
+  );
 
   /// Mapbox style ID. `streets-v12` is the default road map style.
   /// Alternatives: `outdoors-v12`, `satellite-v9`, `dark-v11`, `light-v11`.
@@ -37,7 +36,7 @@ class MapboxConfig {
       'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
   /// Package name sent in the HTTP `User-Agent` / attribution.
-  static const String attributionPackage = 'com.example.glovo_mate';
+  static const String attributionPackage = 'com.glovo_mate.app';
 
   /// Maximum native zoom level. Mapbox serves up to z22; OSM up to z19.
   /// We use 19 (the OSM cap) so the fallback renders correctly at all zooms.

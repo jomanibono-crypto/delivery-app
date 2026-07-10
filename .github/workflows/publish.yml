@@ -1,0 +1,143 @@
+name: 🚀 Publish Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      changelog:
+        description: 'What changed in this release?'
+        required: true
+        default: 'إصلاح الأخطاء وتحسين الأداء'
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  validate:
+    name: 🔍 Validate
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build_number: ${{ steps.version.outputs.build_number }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 🔧 Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: 📦 Get dependencies
+        run: flutter pub get
+
+      - name: 🔍 Check for secrets in staged files
+        run: |
+          echo "Checking for potential secrets..."
+          if git grep -n -E '(ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|sk\.live\.[0-9A-Za-z]+)' -- '*.dart' '*.yaml' '*.json' '*.xml'; then
+            echo "❌ Potential secret found in code!"
+            exit 1
+          fi
+          echo "✅ No secrets detected"
+
+      - name: 🔨 Build APK
+        run: flutter build apk --release --dart-define=MAPBOX_TOKEN=${{ secrets.MAPBOX_TOKEN }}
+
+      - name: 📋 Extract version
+        id: version
+        run: |
+          VERSION=$(grep '^version: ' pubspec.yaml | sed 's/version: //' | sed 's/+.*//')
+          BUILD=$(grep '^version: ' pubspec.yaml | sed 's/.*+//')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_number=$BUILD" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: 📦 Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+  publish:
+    name: 📦 Publish
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 📥 Download APK
+        uses: actions/download-artifact@v4
+        with:
+          name: app-release
+          path: build/app/outputs/flutter-apk/
+
+      - name: 📦 Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.validate.outputs.tag }}
+          name: v${{ needs.validate.outputs.version }} - ${{ github.event.inputs.changelog || 'New release' }}
+          body: |
+            ${{ github.event.inputs.changelog || 'Release triggered by tag push.' }}
+          draft: false
+          prerelease: false
+          files: build/app/outputs/flutter-apk/app-release.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔥 Update Firebase app_version
+        env:
+          FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+        run: |
+          echo "🔐 Signing in to Firebase anonymously..."
+          AUTH_RESPONSE=$(curl -s -X POST \
+            "https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=$FIREBASE_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"returnSecureToken": true}')
+
+          ID_TOKEN=$(echo "$AUTH_RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('idToken',''))" 2>/dev/null)
+
+          if [ -z "$ID_TOKEN" ]; then
+            echo "❌ Firebase auth failed: $AUTH_RESPONSE"
+            exit 1
+          fi
+          echo "✅ Firebase authenticated"
+
+          VERSION="${{ needs.validate.outputs.version }}"
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}/app-release.apk"
+          CHANGELOG="${{ github.event.inputs.changelog || 'New release' }}"
+          FILE_SIZE=$(stat -c%s build/app/outputs/flutter-apk/app-release.apk)
+          APK_HASH=$(sha256sum build/app/outputs/flutter-apk/app-release.apk | awk '{print $1}')
+          PUBLISHED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          echo "📤 Writing to Firebase..."
+          WRITE_RESPONSE=$(curl -s -X PATCH \
+            "https://track-the-delivery-drivers-default-rtdb.firebaseio.com/app_version.json?auth=$ID_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"latest_version\": \"$VERSION\",
+              \"download_url\": \"$DOWNLOAD_URL\",
+              \"changelog\": \"$CHANGELOG\",
+              \"file_size\": $FILE_SIZE,
+              \"apk_hash\": \"$APK_HASH\",
+              \"published_at\": \"$PUBLISHED_AT\"
+            }")
+
+          if echo "$WRITE_RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('latest_version') else 1)" 2>/dev/null; then
+            echo "✅ Firebase updated successfully to v$VERSION"
+            echo "🔐 SHA-256: $APK_HASH"
+          else
+            echo "❌ Firebase write failed: $WRITE_RESPONSE"
+            exit 1
+          fi
+
+      - name: 📊 Generate Summary
+        run: |
+          echo "## ✅ Publish Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** ${{ needs.validate.outputs.version }}+${{ needs.validate.outputs.build_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag:** ${{ needs.validate.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release:** ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ needs.validate.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Download:** https://github.com/${{ github.repository }}/releases/download/${{ needs.validate.outputs.tag }}/app-release.apk" >> $GITHUB_STEP_SUMMARY
+          echo "- **Firebase:** ✅ Updated" >> $GITHUB_STEP_SUMMARY

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -14,6 +15,7 @@ class UpdateInfo {
   final String? downloadUrl;
   final String? changelog;
   final int? fileSize; // in bytes
+  final String? apkHash; // SHA-256 hex digest for integrity check
 
   UpdateInfo({
     required this.updateAvailable,
@@ -21,6 +23,7 @@ class UpdateInfo {
     this.downloadUrl,
     this.changelog,
     this.fileSize,
+    this.apkHash,
   });
 
   String get formattedSize {
@@ -52,12 +55,15 @@ class UpdateService {
       final snap = await _db.child('app_version').get();
 
       if (!snap.exists) {
-        debugPrint('[UpdateService] No app_version node found in Firebase. Seeding initial data...');
-        await _seedUpdateData();
+        debugPrint(
+          '[UpdateService] No app_version node found in Firebase. Skipping update check.',
+        );
         return UpdateInfo(updateAvailable: false);
       }
 
-      final data = snap.value as Map<dynamic, dynamic>?;
+      final data = snap.value is Map
+          ? snap.value as Map<dynamic, dynamic>
+          : null;
       if (data == null) {
         return UpdateInfo(updateAvailable: false);
       }
@@ -66,9 +72,12 @@ class UpdateService {
       final downloadUrl = data['download_url'] as String?;
       final changelog = data['changelog'] as String?;
       final fileSize = data['file_size'] as int?;
+      final apkHash = data['apk_hash'] as String?;
 
       if (latestVersion == null || downloadUrl == null) {
-        debugPrint('[UpdateService] Incomplete app_version data (missing fields).');
+        debugPrint(
+          '[UpdateService] Incomplete app_version data (missing fields).',
+        );
         return UpdateInfo(updateAvailable: false);
       }
 
@@ -76,7 +85,9 @@ class UpdateService {
       final packageInfo = await PackageInfo.fromPlatform();
       final currentVersion = packageInfo.version;
 
-      debugPrint('[UpdateService] Installed: v$currentVersion | Latest: v$latestVersion');
+      debugPrint(
+        '[UpdateService] Installed: v$currentVersion | Latest: v$latestVersion',
+      );
 
       final available = _isNewer(latestVersion, currentVersion);
 
@@ -92,6 +103,7 @@ class UpdateService {
         downloadUrl: downloadUrl,
         changelog: changelog ?? 'لا توجد تفاصيل متاحة.',
         fileSize: fileSize,
+        apkHash: apkHash,
       );
     } catch (e) {
       debugPrint('[UpdateService] Error checking for update: ${e.toString()}');
@@ -101,18 +113,20 @@ class UpdateService {
 
   /// Download the APK from [url], return the local file path.
   /// Shows download progress via [onProgress] callback (0.0 – 1.0).
+  /// If [expectedHash] is provided, verifies the SHA-256 hash after download.
   Future<String> downloadApk({
     required String url,
     void Function(double progress)? onProgress,
+    String? expectedHash,
   }) async {
     debugPrint('[UpdateService] Downloading APK from: $url');
 
-    final response = await http.Client().send(http.Request('GET', Uri.parse(url)));
+    final response = await http.Client().send(
+      http.Request('GET', Uri.parse(url)),
+    );
 
     if (response.statusCode != 200) {
-      throw Exception(
-        'Download failed: HTTP ${response.statusCode}',
-      );
+      throw Exception('Download failed: HTTP ${response.statusCode}');
     }
 
     final totalBytes = response.contentLength;
@@ -122,22 +136,38 @@ class UpdateService {
 
     int downloadedBytes = 0;
 
-    await response.stream.listen(
-      (chunk) {
-        downloadedBytes += chunk.length;
-        sink.add(chunk);
-        if (totalBytes != null && totalBytes > 0 && onProgress != null) {
-          onProgress(downloadedBytes / totalBytes);
-        }
-      },
-      onDone: sink.close,
-      onError: (e) {
-        sink.close();
-        throw Exception('Download stream error: ${e.toString()}');
-      },
-    ).asFuture();
+    await response.stream
+        .listen(
+          (chunk) {
+            downloadedBytes += chunk.length;
+            sink.add(chunk);
+            if (totalBytes != null && totalBytes > 0 && onProgress != null) {
+              onProgress(downloadedBytes / totalBytes);
+            }
+          },
+          onDone: sink.close,
+          onError: (e) {
+            sink.close();
+            throw Exception('Download stream error: ${e.toString()}');
+          },
+        )
+        .asFuture();
 
     debugPrint('[UpdateService] APK downloaded to: ${file.path}');
+
+    if (expectedHash != null && expectedHash.isNotEmpty) {
+      final bytes = await file.readAsBytes();
+      final hashBytes = sha256.convert(bytes);
+      final computedHash = hashBytes.toString();
+      if (computedHash != expectedHash.toLowerCase()) {
+        await file.delete();
+        throw Exception(
+          'SHA-256 mismatch. Expected: $expectedHash, Computed: $computedHash',
+        );
+      }
+      debugPrint('[UpdateService] SHA-256 verified successfully.');
+    }
+
     return file.path;
   }
 
@@ -156,25 +186,10 @@ class UpdateService {
 
     debugPrint('[UpdateService] Opening APK installer: $filePath');
     final result = await OpenFilex.open(filePath);
-    debugPrint('[UpdateService] OpenFilex result: ${result.type} — ${result.message}');
+    debugPrint(
+      '[UpdateService] OpenFilex result: ${result.type} — ${result.message}',
+    );
     return result.type == ResultType.done;
-  }
-
-  /// Seed the `app_version` node with current app data so update checking
-  /// works out-of-the-box without manual Firebase setup.
-  Future<void> _seedUpdateData() async {
-    try {
-      final packageInfo = await PackageInfo.fromPlatform();
-      await _db.child('app_version').set({
-        'latest_version': packageInfo.version,
-        'download_url': '',
-        'changelog': 'نسخة مستقرة.',
-        'file_size': 0,
-      });
-      debugPrint('[UpdateService] Initial app_version written: v${packageInfo.version}');
-    } catch (e) {
-      debugPrint('[UpdateService] Failed to seed app_version: $e');
-    }
   }
 
   /// Compare two version strings (e.g. "1.0.1" vs "1.0.0").

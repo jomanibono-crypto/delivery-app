@@ -1,0 +1,41 @@
+{
+  "rules": {
+    "live": {
+      "$groupCode": {
+        ".read": "root.child('live/'+$groupCode+'/'+auth.uid).exists()",
+        "_meta": {
+          ".read": "auth != null",
+          ".write": "auth != null && !data.exists()"
+        },
+        "_chat": {
+          ".write": "root.child('live/'+$groupCode+'/'+auth.uid).exists()"
+        },
+        "_alerts": {
+          ".write": "root.child('live/'+$groupCode+'/'+auth.uid).exists()"
+        },
+        "$userId": {
+          ".write": "auth.uid === $userId"
+        }
+      }
+    },
+    "blacklist": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "app_version": {
+      ".read": true,
+      "latest_version": { ".write": "auth != null" },
+      "download_url": { ".write": "auth != null" },
+      "changelog": { ".write": "auth != null" },
+      "file_size": { ".write": "auth != null" },
+      "apk_hash": { ".write": "auth != null" },
+      "published_at": { ".write": "auth != null" },
+      "publish_history": { ".write": "auth != null" },
+      "rollback_events": { ".write": "auth != null" }
+    },
+    "admins": {
+      ".read": "auth != null",
+      ".write": "root.child('admins/'+auth.uid).exists()"
+    }
+  }
+}

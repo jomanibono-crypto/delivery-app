@@ -1,7 +1,8 @@
-import 'package:flutter/foundation.dart';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'local_storage_service.dart';
+import 'alert_service.dart';
 
 /// Handles local notifications for proximity alerts.
 ///
@@ -12,6 +13,7 @@ import 'local_storage_service.dart';
 class NotificationService {
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
+  FlutterLocalNotificationsPlugin get plugin => _plugin;
   final LocalStorageService _storage = LocalStorageService();
 
   /// The currently-active channel id (e.g. 'proximity_channel_v3').
@@ -34,7 +36,9 @@ class NotificationService {
       debugPrint('[Notif] Already initialized — skipping.');
       return;
     }
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
+    );
     const iosSettings = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: true,
@@ -56,8 +60,10 @@ class NotificationService {
 
   /// Delete all known legacy channel IDs.
   Future<void> _deleteLegacyChannels() async {
-    final android = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     if (android == null) return;
     for (final id in _legacyChannelIds) {
       try {
@@ -65,16 +71,16 @@ class NotificationService {
       } catch (_) {}
     }
     // Also delete the previous active channel if it differs from current.
-    final ver = await _storage.getChannelVersion();
-    final prevId = 'proximity_channel_v$ver';
     // We'll re-create prevId below, so don't delete it here.
   }
 
   /// Build a fresh channel with the current sound + MAX priority.
   /// Called on app start AND whenever the user changes the sound.
   Future<void> _recreateChannel({bool bumpVersion = false}) async {
-    final android = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     if (android == null) return;
 
     int ver = await _storage.getChannelVersion();
@@ -109,8 +115,10 @@ class NotificationService {
       showBadge: true,
     );
     await android.createNotificationChannel(channel);
-    debugPrint('[Notif] Channel "$_activeChannelId" created '
-        '(sound=$soundKey, playSound=$playSound, importance=max).');
+    debugPrint(
+      '[Notif] Channel "$_activeChannelId" created '
+      '(sound=$soundKey, playSound=$playSound, importance=max).',
+    );
   }
 
   /// Map a sound-key to the platform sound reference.
@@ -148,7 +156,8 @@ class NotificationService {
   Future<bool> requestPermissions() async {
     final android = _plugin
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     final granted = await android?.requestNotificationsPermission() ?? false;
     debugPrint('[Notif] Permission granted=$granted');
     return granted;
@@ -159,7 +168,9 @@ class NotificationService {
   /// PART 3: MAX priority + high visibility → appears as a heads-up banner
   /// over other apps (WhatsApp, YouTube, etc.) when the app is backgrounded.
   Future<void> showProximityNotification(
-      String memberName, double distance) async {
+    String memberName,
+    double distance,
+  ) async {
     final soundKey = await _storage.getNotifSound();
     final bool playSound = soundKey != 'silent';
 
@@ -194,8 +205,10 @@ class NotificationService {
         ? '${distance.toStringAsFixed(0)}م'
         : '${(distance / 1000).toStringAsFixed(1)}كم';
 
-    debugPrint('[Notif] SHOW proximity: member=$memberName dist=$distanceFormatted '
-        '(channel=$_activeChannelId, sound=$soundKey)');
+    debugPrint(
+      '[Notif] SHOW proximity: member=$memberName dist=$distanceFormatted '
+      '(channel=$_activeChannelId, sound=$soundKey)',
+    );
 
     await _plugin.show(
       memberName.hashCode, // Unique ID per member
@@ -232,18 +245,52 @@ class NotificationService {
       presentBadge: true,
       presentSound: true,
     );
-    final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+    final details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
 
-    final icon = senderIcon?.isNotEmpty == true ? senderIcon! : '💬';
     final title = '📩 $senderName';
 
     debugPrint('[Notif] SHOW chat message from "$senderName": "$message"');
 
     // Use a unique ID per sender so new messages replace old ones for same sender.
+    await _plugin.show(2000 + senderName.hashCode, title, message, details);
+  }
+
+  /// Show a notification when a new alert (police/radar/control) appears.
+  Future<void> showAlertNotification(AlertData alert) async {
+    final androidDetails = AndroidNotificationDetails(
+      _activeChannelId,
+      'Proximity Alerts',
+      channelDescription: 'Notifications when group members are nearby',
+      importance: Importance.max,
+      priority: Priority.max,
+      showWhen: true,
+      playSound: true,
+      enableVibration: true,
+      fullScreenIntent: false,
+      visibility: NotificationVisibility.public,
+      autoCancel: true,
+      category: AndroidNotificationCategory.alarm,
+    );
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+    final details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    final latStr = alert.lat.toStringAsFixed(4);
+    final lngStr = alert.lng.toStringAsFixed(4);
+
     await _plugin.show(
-      2000 + senderName.hashCode,
-      title,
-      message,
+      4000 + alert.id.hashCode,
+      '${alert.type.label} في منطقتك!',
+      'أبلغ ${alert.userName} عن ${alert.type.label} — اضغط لفتح الخريطة\n$latStr, $lngStr',
       details,
     );
   }

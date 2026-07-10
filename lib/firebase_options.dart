@@ -57,7 +57,8 @@ class DefaultFirebaseOptions {
     appId: '1:968205974894:android:0e000645a81473cdb8157f',
     messagingSenderId: '968205974894',
     projectId: 'track-the-delivery-drivers',
-    databaseURL: 'https://track-the-delivery-drivers-default-rtdb.firebaseio.com',
+    databaseURL:
+        'https://track-the-delivery-drivers-default-rtdb.firebaseio.com',
     storageBucket: 'track-the-delivery-drivers.firebasestorage.app',
   );
 }

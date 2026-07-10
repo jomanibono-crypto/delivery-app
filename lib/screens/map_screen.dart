@@ -6,9 +6,13 @@ import 'package:firebase_database/firebase_database.dart';
 import '../config/mapbox_config.dart';
 import '../services/firebase_service.dart';
 import '../services/map_cache_service.dart';
-import 'home_screen.dart';
+import '../services/alert_service.dart';
+import '../services/notification_service.dart';
+import '../widgets/vote_widget.dart';
+import '../utils/relative_time.dart';
 import 'settings_screen.dart';
 import 'chat_screen.dart';
+import 'blacklist_screen.dart';
 
 /// Map screen showing all group members as colored markers.
 ///
@@ -23,11 +27,7 @@ class MapScreen extends StatefulWidget {
   final String groupCode;
   final String userName;
 
-  const MapScreen({
-    super.key,
-    required this.groupCode,
-    required this.userName,
-  });
+  const MapScreen({super.key, required this.groupCode, required this.userName});
 
   @override
   State<MapScreen> createState() => MapScreenState();
@@ -80,6 +80,10 @@ class MapScreenState extends State<MapScreen> {
     Color(0xFFD81B60), // Pink
   ];
 
+  final AlertService _alertService = AlertService();
+  List<AlertData> _alerts = [];
+  Set<String> _seenAlertIds = {};
+
   @override
   void initState() {
     super.initState();
@@ -89,6 +93,8 @@ class MapScreenState extends State<MapScreen> {
     _historyRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       _loadHistory();
     });
+    _listenToAlerts();
+    _runCleanup();
   }
 
   // ──────────────────── Loading timeout (AUDIT-3) ────────────────────
@@ -119,6 +125,343 @@ class MapScreenState extends State<MapScreen> {
     }
   }
 
+  // ──────────────────── Alerts ────────────────────
+
+  void _listenToAlerts() {
+    _alertService.watchAlerts(widget.groupCode).listen((alerts) {
+      if (!mounted) return;
+      final newIds = alerts.map((a) => a.id).toSet();
+      for (final alert in alerts) {
+        if (!_seenAlertIds.contains(alert.id) &&
+            alert.userId != _firebaseService.userId) {
+          _showAlertNotification(alert);
+        }
+      }
+      setState(() {
+        _alerts = alerts.where((a) => !a.resolved).toList();
+        _seenAlertIds = newIds;
+      });
+    });
+  }
+
+  void _onMapLongPress(TapPosition tapPosition, LatLng point) {
+    _showAlertContextMenu(point);
+  }
+
+  void _showAlertContextMenu(LatLng point) {
+    final theme = Theme.of(context);
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            contentPadding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+            title: Column(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.errorContainer,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Icon(
+                    Icons.warning_amber_rounded,
+                    color: theme.colorScheme.error,
+                    size: 26,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'إبلاغ عن',
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'اختر نوع التنبيه',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _alertOption(
+                    ctx,
+                    point,
+                    AlertType.police,
+                    Icons.local_police_rounded,
+                    'شرطة',
+                    'نقطة تفتيش شرطة في هذا الموقع',
+                  ),
+                  const SizedBox(height: 10),
+                  _alertOption(
+                    ctx,
+                    point,
+                    AlertType.speedTrap,
+                    Icons.speed_rounded,
+                    'رادار',
+                    'كاميرا سرعة أو رادار مرور',
+                  ),
+                  const SizedBox(height: 10),
+                  _alertOption(
+                    ctx,
+                    point,
+                    AlertType.control,
+                    Icons.supervisor_account_rounded,
+                    'مراقب غلوفو',
+                    'مراقب تابع لغلوفو في المنطقة',
+                  ),
+                  const SizedBox(height: 10),
+                  _alertOption(
+                    ctx,
+                    point,
+                    AlertType.note,
+                    Icons.sticky_note_2_rounded,
+                    'ملاحظة',
+                    'نص يظهر في الموقع على الخريطة',
+                  ),
+                  const SizedBox(height: 10),
+                  _alertOption(
+                    ctx,
+                    point,
+                    AlertType.badCustomer,
+                    Icons.person_off_rounded,
+                    'عميل سيء',
+                    'تسجيل عميل رفض الدفع أو سبب آخر',
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('إلغاء'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showNoteDialog(LatLng point, AlertType type) {
+    final theme = Theme.of(context);
+    final noteController = TextEditingController();
+    final reasonController = TextEditingController();
+    final isBad = type == AlertType.badCustomer;
+    final isNote = type == AlertType.note;
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) {
+          return Directionality(
+            textDirection: TextDirection.rtl,
+            child: AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              title: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: type.color.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      type == AlertType.police
+                          ? Icons.local_police_rounded
+                          : type == AlertType.speedTrap
+                          ? Icons.speed_rounded
+                          : type == AlertType.control
+                          ? Icons.supervisor_account_rounded
+                          : type == AlertType.note
+                          ? Icons.sticky_note_2_rounded
+                          : Icons.person_off_rounded,
+                      color: type.color,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(type.label, style: theme.textTheme.titleLarge),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (isBad)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: TextField(
+                        controller: reasonController,
+                        textDirection: TextDirection.rtl,
+                        maxLines: 2,
+                        decoration: InputDecoration(
+                          labelText: '* السبب',
+                          hintText: 'مثال: رفض الدفع، سلوك غير لائق...',
+                        ),
+                        onChanged: (_) => setDlgState(() {}),
+                      ),
+                    ),
+                  TextField(
+                    controller: noteController,
+                    textDirection: TextDirection.rtl,
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      hintText: isBad
+                          ? 'ملاحظة إضافية (اختياري)'
+                          : (isNote
+                                ? 'اكتب ملاحظتك...'
+                                : 'ملاحظة إضافية (اختياري)'),
+                    ),
+                  ),
+                ],
+              ),
+              actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('إلغاء'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    if (isBad && reasonController.text.trim().isEmpty) return;
+                    Navigator.pop(ctx);
+                    await _alertService.addAlert(
+                      groupCode: widget.groupCode,
+                      type: type,
+                      lat: point.latitude,
+                      lng: point.longitude,
+                      note: noteController.text.trim(),
+                      reason: reasonController.text.trim(),
+                    );
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            '${type.label}: ${isNote ? 'تمت الإضافة' : 'تم الإبلاغ'}',
+                            textAlign: TextAlign.right,
+                          ),
+                          behavior: SnackBarBehavior.floating,
+                          duration: const Duration(seconds: 2),
+                          backgroundColor: type.color,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                  child: Text(isBad ? 'تأكيد' : 'تأكيد'),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _alertOption(
+    BuildContext ctx,
+    LatLng point,
+    AlertType type,
+    IconData icon,
+    String title,
+    String desc,
+  ) {
+    final theme = Theme.of(ctx);
+    return SizedBox(
+      width: double.infinity,
+      child: Material(
+        color: type.color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () {
+            Navigator.pop(ctx);
+            _showNoteDialog(point, type);
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: type.color.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(icon, color: type.color, size: 24),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        desc,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_left_rounded,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showAlertNotification(AlertData alert) {
+    try {
+      final notif = NotificationService();
+      notif.showAlertNotification(alert).catchError((_) {});
+    } catch (_) {}
+  }
+
+  Future<void> _runCleanup() async {
+    try {
+      final deleted = await _alertService.cleanupExpiredAlerts(
+        widget.groupCode,
+      );
+      final msgDeleted = await _alertService.cleanupExpiredMessages(
+        widget.groupCode,
+      );
+      if (deleted > 0 || msgDeleted > 0) {
+        debugPrint(
+          '[MapCleanup] Expired: $deleted alerts, $msgDeleted messages',
+        );
+      }
+    } catch (_) {}
+  }
+
   // ──────────────────── Route History ────────────────────
 
   Future<void> _loadHistory() async {
@@ -139,50 +482,57 @@ class MapScreenState extends State<MapScreen> {
   // ──────────────────── Firebase Listener ────────────────────
 
   void _listenToMembers() {
-    _membersSubscription =
-        _firebaseService.watchGroupMembers(widget.groupCode).listen((event) {
-      if (!mounted) return;
+    _membersSubscription = _firebaseService
+        .watchGroupMembers(widget.groupCode)
+        .listen(
+          (event) {
+            if (!mounted) return;
 
-      final snap = event.snapshot;
-      if (!snap.exists) return;
+            final snap = event.snapshot;
+            if (!snap.exists) return;
 
-      final data = snap.value as Map<dynamic, dynamic>?;
+            final data = snap.value is Map
+                ? snap.value as Map<dynamic, dynamic>
+                : null;
 
-      if (data == null) {
-        if (mounted) setState(() => _members.clear());
-        return;
-      }
+            if (data == null) {
+              if (mounted) setState(() => _members.clear());
+              return;
+            }
 
-      final updated = <String, Map<String, dynamic>>{};
-      data.forEach((key, value) {
-        if (key == '_meta') return;
-        if (value is! Map) return;
-        final member = value;
+            final updated = <String, Map<String, dynamic>>{};
+            data.forEach((key, value) {
+              if (key == '_meta' || key == '_chat' || key == '_alerts') return;
+              if (value is! Map) return;
+              final member = value;
 
-        updated[key] = {
-          'name': (member['name'] as String?) ?? 'بدون اسم',
-          'lat': (member['lat'] as num?)?.toDouble() ?? 0.0,
-          'lng': (member['lng'] as num?)?.toDouble() ?? 0.0,
-          'online': member['online'] as bool? ?? false,
-          'icon': (member['icon'] as String?) ?? '',
-          'speed': (member['speed'] as num?)?.toDouble() ?? 0.0,
-          'last_moved_at': (member['last_moved_at'] as num?)?.toInt() ?? 0,
-        };
-      });
+              updated[key] = {
+                'name': (member['name'] as String?) ?? 'بدون اسم',
+                'lat': (member['lat'] as num?)?.toDouble() ?? 0.0,
+                'lng': (member['lng'] as num?)?.toDouble() ?? 0.0,
+                'online': member['online'] as bool? ?? false,
+                'icon': (member['icon'] as String?) ?? '',
+                'speed': (member['speed'] as num?)?.toDouble() ?? 0.0,
+                'last_moved_at':
+                    (member['last_moved_at'] as num?)?.toInt() ?? 0,
+              };
+            });
 
-      if (!mounted) return;
-      setState(() => _members = updated);
+            if (!mounted) return;
+            setState(() => _members = updated);
 
-      // MEMBER SELECTOR: if following a member, re-center on them as they move.
-      // Don't override the camera if the user manually panned/zoomed.
-      if (_followingMemberId != null && !_userInteracted) {
-        _followMember();
-      } else if (_followingMemberId == null) {
-        _fitCameraToBounds();
-      }
-    }, onError: (e) {
-      debugPrint('[Map] Members stream error: $e');
-    });
+            // MEMBER SELECTOR: if following a member, re-center on them as they move.
+            // Don't override the camera if the user manually panned/zoomed.
+            if (_followingMemberId != null && !_userInteracted) {
+              _followMember();
+            } else if (_followingMemberId == null) {
+              _fitCameraToBounds();
+            }
+          },
+          onError: (e) {
+            debugPrint('[Map] Members stream error: $e');
+          },
+        );
   }
 
   // ──────────────────── MEMBER SELECTOR ────────────────────
@@ -219,6 +569,7 @@ class MapScreenState extends State<MapScreen> {
 
   /// Show a popup with the member's speed or idle duration.
   void _showMemberPopup(String memberId) {
+    final theme = Theme.of(context);
     final member = _members[memberId];
     if (member == null) return;
     final isMe = memberId == _firebaseService.userId;
@@ -251,47 +602,97 @@ class MapScreenState extends State<MapScreen> {
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Row(
-          children: [
-            if ((member['icon'] as String).isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(left: 8),
-                child: Text(member['icon'] as String, style: const TextStyle(fontSize: 24)),
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Center(
+                  child: (member['icon'] as String).isNotEmpty
+                      ? Text(
+                          member['icon'] as String,
+                          style: const TextStyle(fontSize: 22),
+                        )
+                      : Icon(
+                          Icons.person_rounded,
+                          color: theme.colorScheme.primary,
+                          size: 22,
+                        ),
+                ),
               ),
-            Flexible(child: Text(name, style: const TextStyle(fontSize: 18))),
+              const SizedBox(width: 12),
+              Expanded(child: Text(name, style: theme.textTheme.titleLarge)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Text(status, style: theme.textTheme.bodyMedium),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: member['online'] as bool
+                          ? theme.colorScheme.tertiary
+                          : theme.colorScheme.error,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    member['online'] as bool ? 'متصل' : 'غير متصل',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('إغلاق'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _selectMember(memberId);
+              },
+              icon: const Icon(Icons.my_location_rounded, size: 18),
+              label: const Text('تتبع'),
+            ),
           ],
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(status, style: const TextStyle(fontSize: 16)),
-            const SizedBox(height: 8),
-            Text(member['online'] as bool ? '🟢 متصل' : '🔴 غير متصل',
-                style: const TextStyle(fontSize: 14, color: Colors.grey)),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('إغلاق'),
-          ),
-          FilledButton.icon(
-            onPressed: () {
-              Navigator.pop(ctx);
-              _selectMember(memberId);
-            },
-            icon: const Icon(Icons.my_location, size: 18),
-            label: const Text('تتبع'),
-          ),
-        ],
       ),
     );
   }
 
-  /// Open a thumb-friendly bottom sheet listing all members.
   void _openMemberPicker() {
+    final theme = Theme.of(context);
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -299,7 +700,6 @@ class MapScreenState extends State<MapScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (sheetCtx) {
-        // Snapshot the members so the list doesn't mutate mid-build.
         final entries = _members.entries.toList();
         final userId = _firebaseService.userId;
         return SafeArea(
@@ -310,30 +710,28 @@ class MapScreenState extends State<MapScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Drag handle
                 Padding(
-                  padding: const EdgeInsets.only(top: 10, bottom: 6),
+                  padding: const EdgeInsets.only(top: 12, bottom: 8),
                   child: Container(
                     width: 40,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade400,
+                      color: theme.colorScheme.outlineVariant,
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
                 ),
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 8),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
                   child: Text(
                     'اختر عضواً لتتبّعه',
-                    style: TextStyle(
-                      fontSize: 16,
+                    style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF1A237E),
+                      color: theme.colorScheme.onSurface,
                     ),
                   ),
                 ),
-                const Divider(height: 1),
+                Divider(height: 1, color: theme.colorScheme.outlineVariant),
                 Flexible(
                   child: ListView.builder(
                     shrinkWrap: true,
@@ -345,24 +743,43 @@ class MapScreenState extends State<MapScreen> {
                       final isFollowed = entry.key == _followingMemberId;
                       final isOnline = member['online'] == true;
                       return ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: isOnline
-                              ? Colors.green.shade100
-                              : Colors.red.shade50,
-                          child: (member['icon'] as String).isNotEmpty
-                              ? Text(member['icon'] as String,
-                                  style: const TextStyle(fontSize: 22))
-                              : const Icon(Icons.person),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 2,
+                        ),
+                        leading: Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: isOnline
+                                ? theme.colorScheme.tertiaryContainer
+                                : theme.colorScheme.errorContainer,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Center(
+                            child: (member['icon'] as String).isNotEmpty
+                                ? Text(
+                                    member['icon'] as String,
+                                    style: const TextStyle(fontSize: 22),
+                                  )
+                                : Icon(
+                                    Icons.person_rounded,
+                                    color: isOnline
+                                        ? theme.colorScheme.tertiary
+                                        : theme.colorScheme.error,
+                                    size: 22,
+                                  ),
+                          ),
                         ),
                         title: Text(
                           '${member['name']}${isMe ? ' (أنت)' : ''}',
                           style: TextStyle(
                             fontWeight: isFollowed
                                 ? FontWeight.bold
-                                : FontWeight.normal,
+                                : FontWeight.w500,
                             color: isFollowed
-                                ? const Color(0xFF1565C0)
-                                : Colors.black87,
+                                ? theme.colorScheme.primary
+                                : theme.colorScheme.onSurface,
                           ),
                         ),
                         subtitle: Text(
@@ -370,15 +787,28 @@ class MapScreenState extends State<MapScreen> {
                           style: TextStyle(
                             fontSize: 12,
                             color: isOnline
-                                ? Colors.green.shade700
-                                : Colors.red.shade400,
+                                ? theme.colorScheme.tertiary
+                                : theme.colorScheme.error,
                           ),
                         ),
                         trailing: isFollowed
-                            ? const Icon(Icons.my_location,
-                                color: Color(0xFF1565C0))
-                            : const Icon(Icons.chevron_right,
-                                color: Colors.grey),
+                            ? Container(
+                                width: 32,
+                                height: 32,
+                                decoration: BoxDecoration(
+                                  color: theme.colorScheme.primaryContainer,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Icon(
+                                  Icons.my_location_rounded,
+                                  color: theme.colorScheme.primary,
+                                  size: 18,
+                                ),
+                              )
+                            : Icon(
+                                Icons.chevron_left_rounded,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
                         onTap: () {
                           Navigator.pop(ctx);
                           _selectMember(entry.key);
@@ -454,6 +884,351 @@ class MapScreenState extends State<MapScreen> {
     }
   }
 
+  List<Marker> _buildAlertMarkers() {
+    return _alerts.map((alert) {
+      IconData icon;
+      switch (alert.type) {
+        case AlertType.police:
+          icon = Icons.local_police_rounded;
+          break;
+        case AlertType.speedTrap:
+          icon = Icons.speed_rounded;
+          break;
+        case AlertType.control:
+          icon = Icons.supervisor_account_rounded;
+          break;
+        case AlertType.note:
+          icon = Icons.sticky_note_2_rounded;
+          break;
+        case AlertType.hazard:
+          icon = Icons.warning_rounded;
+          break;
+        case AlertType.accident:
+          icon = Icons.car_crash_rounded;
+          break;
+        case AlertType.badCustomer:
+          icon = Icons.person_off_rounded;
+          break;
+      }
+
+      final markerHeight = alert.note.isNotEmpty ? 88.0 : 56.0;
+
+      return Marker(
+        point: LatLng(alert.lat, alert.lng),
+        width: 160,
+        height: markerHeight,
+        alignment: Alignment.center,
+        child: GestureDetector(
+          onTap: () => _showAlertDetail(alert),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Stack(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: alert.type.color.withValues(alpha: 0.9),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 3),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Colors.black26,
+                          blurRadius: 6,
+                          offset: Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Icon(icon, color: Colors.white, size: 22),
+                  ),
+                  Positioned(
+                    top: 0,
+                    right: 0,
+                    child: Container(
+                      width: 18,
+                      height: 18,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Colors.red.shade300,
+                          width: 2,
+                        ),
+                      ),
+                      child: Icon(
+                        Icons.close_rounded,
+                        size: 10,
+                        color: Colors.red.shade300,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                margin: const EdgeInsets.only(top: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: alert.type.color,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  alert.type.label,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              if (alert.note.isNotEmpty)
+                Container(
+                  margin: const EdgeInsets.only(top: 2),
+                  constraints: const BoxConstraints(maxWidth: 150),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.1),
+                        blurRadius: 3,
+                      ),
+                    ],
+                  ),
+                  child: Text(
+                    alert.note,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      color: Color(0xFF1C1B1F),
+                    ),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+    }).toList();
+  }
+
+  void _showAlertDetail(AlertData alert) {
+    final theme = Theme.of(context);
+    final userId = FirebaseService().userId;
+    showDialog(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: alert.type.color.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  _alertTypeIcon(alert.type),
+                  color: alert.type.color,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  alert.type.label,
+                  style: theme.textTheme.titleLarge,
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (alert.reason.isNotEmpty) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: alert.type.color.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: alert.type.color.withValues(alpha: 0.2),
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.report_rounded,
+                        color: alert.type.color,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          alert.reason,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
+              if (alert.note.isNotEmpty) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Text(alert.note, style: theme.textTheme.bodyMedium),
+                ),
+                const SizedBox(height: 10),
+              ],
+              Text(
+                'أبلغ بواسطة: ${alert.userName}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                relativeTime(alert.timestamp),
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Divider(height: 1),
+              VoteWidget(
+                alert: alert,
+                currentUserId: userId,
+                onVote: (vote) async {
+                  await _alertService.submitVote(
+                    groupCode: widget.groupCode,
+                    alertId: alert.id,
+                    vote: vote,
+                  );
+                },
+              ),
+            ],
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton.tonalIcon(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _confirmDeleteAlert(alert);
+              },
+              icon: const Icon(Icons.delete_outline_rounded, size: 18),
+              label: const Text('حذف'),
+              style: FilledButton.styleFrom(
+                foregroundColor: theme.colorScheme.error,
+                backgroundColor: theme.colorScheme.errorContainer,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  IconData _alertTypeIcon(AlertType type) {
+    switch (type) {
+      case AlertType.police:
+        return Icons.local_police_rounded;
+      case AlertType.speedTrap:
+        return Icons.speed_rounded;
+      case AlertType.control:
+        return Icons.supervisor_account_rounded;
+      case AlertType.hazard:
+        return Icons.warning_rounded;
+      case AlertType.accident:
+        return Icons.car_crash_rounded;
+      case AlertType.note:
+        return Icons.sticky_note_2_rounded;
+      case AlertType.badCustomer:
+        return Icons.person_off_rounded;
+    }
+  }
+
+  void _confirmDeleteAlert(AlertData alert) {
+    final theme = Theme.of(context);
+    showDialog(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.errorContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.delete_outline_rounded,
+                  color: theme.colorScheme.error,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text('هل أنت متأكد؟', style: theme.textTheme.titleLarge),
+            ],
+          ),
+          content: Text(
+            'سيتم حذف ${alert.type.label} من الخريطة',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('لا'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                await _alertService.deleteAlert(widget.groupCode, alert.id);
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: theme.colorScheme.error,
+              ),
+              child: const Text('نعم، احذف'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ──────────────────── Markers ────────────────────
 
   List<Marker> _buildMarkers() {
@@ -469,7 +1244,9 @@ class MapScreenState extends State<MapScreen> {
       final isMe = key == userId;
       final isFollowed = key == _followingMemberId;
       final colorIndex = isMe ? 0 : (i % (_memberColors.length - 1)) + 1;
-      final color = isFollowed ? const Color(0xFF1565C0) : _memberColors[colorIndex];
+      final color = isFollowed
+          ? const Color(0xFFFF9800)
+          : _memberColors[colorIndex];
       final displayName = '${member['name']}${isMe ? ' (أنت)' : ''}';
 
       markers.add(
@@ -514,14 +1291,17 @@ class MapScreenState extends State<MapScreen> {
                   alignment: Alignment.center,
                   children: [
                     Container(
-                      width: isFollowed ? 38 : 32,
-                      height: isFollowed ? 38 : 32,
+                      width: isFollowed ? 40 : 32,
+                      height: isFollowed ? 40 : 32,
                       decoration: BoxDecoration(
                         color: color,
                         shape: BoxShape.circle,
+                        border: isFollowed
+                            ? Border.all(color: Colors.white, width: 3)
+                            : null,
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.3),
+                            color: Colors.black.withValues(alpha: 0.3),
                             blurRadius: 4,
                             offset: const Offset(0, 2),
                           ),
@@ -531,9 +1311,13 @@ class MapScreenState extends State<MapScreen> {
                     (member['icon'] as String).isNotEmpty
                         ? Text(
                             member['icon'] as String,
-                            style: const TextStyle(fontSize: 18),
+                            style: const TextStyle(fontSize: 16),
                           )
-                        : const Icon(Icons.person, color: Colors.white, size: 20),
+                        : Icon(
+                            Icons.person_rounded,
+                            color: Colors.white,
+                            size: 18,
+                          ),
                   ],
                 ),
               ],
@@ -561,37 +1345,80 @@ class MapScreenState extends State<MapScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // The bottom navigation bar's height (~80px). Buttons sit above it in the
-    // thumb-friendly zone.
-    const bottomNavHeight = 80.0;
+    final theme = Theme.of(context);
     const buttonSpacing = 16.0;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('خريطة المجموعة'),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.map_rounded, size: 22, color: theme.colorScheme.primary),
+            const SizedBox(width: 8),
+            const Text('خريطة المجموعة'),
+          ],
+        ),
         actions: [
           Padding(
-            padding: const EdgeInsets.only(left: 16),
+            padding: const EdgeInsets.only(left: 12),
             child: Center(
-              child: Chip(
-                avatar: const Icon(Icons.group, size: 16),
-                label: Text('${_members.length} أعضاء'),
-                visualDensity: VisualDensity.compact,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.secondaryContainer,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.people_rounded,
+                      size: 16,
+                      color: theme.colorScheme.secondary,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${_members.length}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: theme.colorScheme.onSecondaryContainer,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
         ],
       ),
       body: _members.isEmpty
-          ? const Center(
+          ? Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.map_outlined, size: 64, color: Colors.grey),
-                  SizedBox(height: 16),
+                  Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Icon(
+                      Icons.map_outlined,
+                      size: 36,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
                   Text(
                     'في انتظار الأعضاء...',
-                    style: TextStyle(fontSize: 16, color: Colors.grey),
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
@@ -610,13 +1437,13 @@ class MapScreenState extends State<MapScreen> {
                       setState(() => _mapReady = true);
                       _fitCameraToBounds();
                     },
-                    // MEMBER SELECTOR: detect manual pan/zoom so we don't
-                    // yank the camera during follow mode.
                     onPositionChanged: (position, hasGesture) {
                       if (hasGesture) {
                         _userInteracted = true;
                       }
                     },
+                    onLongPress: (tapPosition, point) =>
+                        _onMapLongPress(tapPosition, point),
                   ),
                   children: [
                     TileLayer(
@@ -631,20 +1458,19 @@ class MapScreenState extends State<MapScreen> {
                         polylines: [
                           Polyline(
                             points: _routePoints,
-                            color: const Color(0xFF1565C0).withOpacity(0.5),
+                            color: theme.colorScheme.secondary.withValues(
+                              alpha: 0.5,
+                            ),
                             strokeWidth: 4,
                           ),
                         ],
                       ),
+                    MarkerLayer(markers: _buildAlertMarkers()),
                     MarkerLayer(markers: _buildMarkers()),
                   ],
                 ),
 
-                // ──────────────────────────────────────────────────────
-                // MEMBER SELECTOR BUTTONS — lower thumb-friendly zone
-                // Positioned ~16px above the bottom nav bar (~80px tall),
-                // so ~96px from the very bottom. Right-aligned for right-thumb.
-                // ──────────────────────────────────────────────────────
+                // MEMBER SELECTOR BUTTONS
                 Positioned(
                   right: 16,
                   bottom: buttonSpacing,
@@ -652,26 +1478,24 @@ class MapScreenState extends State<MapScreen> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      // "Show all" button — only visible while following someone.
                       if (_followingMemberId != null)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 12),
                           child: FloatingActionButton.extended(
                             heroTag: 'showAllBtn',
                             onPressed: _showAllMembers,
-                            icon: const Icon(Icons.group_work),
+                            icon: const Icon(Icons.group_work_rounded),
                             label: const Text('الكل'),
-                            backgroundColor: const Color(0xFF1565C0),
+                            backgroundColor: theme.colorScheme.primary,
                             foregroundColor: Colors.white,
                           ),
                         ),
-                      // Member selector button (always visible when members exist).
                       FloatingActionButton(
                         heroTag: 'memberPickerBtn',
                         onPressed: _openMemberPicker,
                         tooltip: 'اختر عضواً',
                         backgroundColor: Colors.white,
-                        foregroundColor: const Color(0xFF1565C0),
+                        foregroundColor: theme.colorScheme.primary,
                         child: const Icon(Icons.people_alt_outlined),
                       ),
                     ],
@@ -680,19 +1504,21 @@ class MapScreenState extends State<MapScreen> {
 
                 // Initial-loading spinner overlay.
                 if (!_cameraInitialized && !_loadingTimedOut)
-                  const Positioned.fill(
-                    child: ColoredBox(
-                      color: Colors.white54,
+                  Positioned.fill(
+                    child: Container(
+                      color: Colors.white.withValues(alpha: 0.7),
                       child: Center(
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            CircularProgressIndicator(),
-                            SizedBox(height: 12),
+                            CircularProgressIndicator(
+                              color: theme.colorScheme.primary,
+                            ),
+                            const SizedBox(height: 14),
                             Text(
                               'جاري تحميل الخريطة...',
-                              style: TextStyle(
-                                color: Color(0xFF1565C0),
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: theme.colorScheme.primary,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -705,36 +1531,51 @@ class MapScreenState extends State<MapScreen> {
                 // Timeout error banner.
                 if (_loadingTimedOut)
                   Positioned.fill(
-                    child: ColoredBox(
-                      color: Colors.grey.shade100,
+                    child: Container(
+                      color: theme.colorScheme.surface,
                       child: Center(
                         child: Padding(
                           padding: const EdgeInsets.all(32),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Icon(Icons.wifi_off,
-                                  size: 64, color: Colors.grey),
-                              const SizedBox(height: 16),
-                              const Text(
+                              Container(
+                                width: 72,
+                                height: 72,
+                                decoration: BoxDecoration(
+                                  color:
+                                      theme.colorScheme.surfaceContainerHighest,
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Icon(
+                                  Icons.wifi_off_rounded,
+                                  size: 36,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+                              Text(
                                 'تعذّر تحميل الخريطة، تحقق من الإنترنت',
                                 textAlign: TextAlign.center,
-                                style:
-                                    TextStyle(fontSize: 16, color: Colors.grey),
+                                style: theme.textTheme.bodyLarge?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
                               ),
-                              const SizedBox(height: 16),
+                              const SizedBox(height: 20),
                               FilledButton.icon(
                                 onPressed: () {
                                   setState(() {
                                     _loadingTimedOut = false;
                                     _cameraInitialized = false;
                                     _fellBackToOsm = true;
-                                    _tileUrl =
-                                        MapboxConfig.osmFallbackTileUrl;
+                                    _tileUrl = MapboxConfig.osmFallbackTileUrl;
                                   });
                                   _startLoadingTimeout();
                                 },
-                                icon: const Icon(Icons.refresh),
+                                icon: const Icon(
+                                  Icons.refresh_rounded,
+                                  size: 20,
+                                ),
                                 label: const Text('إعادة المحاولة'),
                               ),
                             ],
@@ -751,7 +1592,9 @@ class MapScreenState extends State<MapScreen> {
                     left: 8,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.black54,
                         borderRadius: BorderRadius.circular(8),
@@ -772,15 +1615,58 @@ class MapScreenState extends State<MapScreen> {
     return NavigationBar(
       selectedIndex: 0,
       destinations: const [
-        NavigationDestination(icon: Icon(Icons.map_outlined), selectedIcon: Icon(Icons.map), label: 'الخريطة'),
-        NavigationDestination(icon: Icon(Icons.chat_bubble_outline), selectedIcon: Icon(Icons.chat_bubble), label: 'الدردشة'),
-        NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'الإعدادات'),
+        NavigationDestination(
+          icon: Icon(Icons.map_outlined),
+          selectedIcon: Icon(Icons.map_rounded),
+          label: 'الخريطة',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.chat_bubble_outline_rounded),
+          selectedIcon: Icon(Icons.chat_bubble_rounded),
+          label: 'الدردشة',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.block_outlined),
+          selectedIcon: Icon(Icons.block_rounded),
+          label: 'القائمة السوداء',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.settings_outlined),
+          selectedIcon: Icon(Icons.settings_rounded),
+          label: 'الإعدادات',
+        ),
       ],
       onDestinationSelected: (index) {
         if (index == 1) {
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => ChatScreen(groupCode: widget.groupCode, userName: widget.userName)));
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ChatScreen(
+                groupCode: widget.groupCode,
+                userName: widget.userName,
+              ),
+            ),
+          );
         } else if (index == 2) {
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => SettingsScreen(groupCode: widget.groupCode, userName: widget.userName)));
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => BlacklistScreen(
+                groupCode: widget.groupCode,
+                userName: widget.userName,
+              ),
+            ),
+          );
+        } else if (index == 3) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => SettingsScreen(
+                groupCode: widget.groupCode,
+                userName: widget.userName,
+              ),
+            ),
+          );
         }
       },
     );
