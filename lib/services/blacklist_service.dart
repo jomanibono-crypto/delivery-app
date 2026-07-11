@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:firebase_database/firebase_database.dart';
 import 'firebase_service.dart';
+import '../utils/firebase_path.dart';
 
 class BlacklistEntry {
   final String id;
@@ -65,7 +66,7 @@ class BlacklistService {
   }
 
   Future<void> deleteEntry(String entryId) async {
-    await _db.child('blacklist/$entryId').remove();
+    await _db.child('blacklist/${sanitizeFirebaseKey(entryId)}').remove();
   }
 
   Future<BlacklistEntry?> checkPhone(String phone) async {

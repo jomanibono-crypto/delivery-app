@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
+import '../utils/firebase_path.dart';
 
 /// Centralized Firebase service handling anonymous auth and realtime database.
 class FirebaseService {
@@ -30,7 +31,8 @@ class FirebaseService {
   }) async {
     try {
       final db = FirebaseDatabase.instance.ref();
-      final ref = db.child('live/$groupCode/$userId');
+      final sk = sanitizeFirebaseKey;
+      final ref = db.child('live/${sk(groupCode)}/${sk(userId)}');
       final data = <String, dynamic>{
         'name': name,
         'lat': lat,
@@ -100,7 +102,7 @@ class FirebaseService {
     String code;
     for (var attempt = 0; attempt < 5; attempt++) {
       code = _generateGroupCode();
-      final metaRef = _db.child('live/$code/_meta');
+      final metaRef = _db.child('live/${sanitizeFirebaseKey(code)}/_meta');
       final existing = await metaRef.get();
       if (!existing.exists) {
         debugPrint(
@@ -125,7 +127,7 @@ class FirebaseService {
   /// Reads live/{code}/_meta which is covered by "live/{group_code}" rules.
   Future<bool> groupExists(String code) async {
     await _ensureAuthenticated();
-    final snap = await _db.child('live/$code/_meta').get();
+    final snap = await _db.child('live/${sanitizeFirebaseKey(code)}/_meta').get();
     return snap.exists;
   }
 
@@ -145,7 +147,7 @@ class FirebaseService {
   }) async {
     try {
       await _ensureAuthenticated();
-      final ref = _db.child('live/$groupCode/$userId');
+      final ref = _db.child('live/${sanitizeFirebaseKey(groupCode)}/${sanitizeFirebaseKey(userId)}');
       final data = <String, dynamic>{
         'name': name,
         'lat': lat,
@@ -175,7 +177,7 @@ class FirebaseService {
   }) async {
     try {
       await _ensureAuthenticated();
-      await _db.child('live/$groupCode/$userId/name').set(newName);
+      await _db.child('live/${sanitizeFirebaseKey(groupCode)}/${sanitizeFirebaseKey(userId)}/name').set(newName);
     } catch (e) {
       debugPrint('[FirebaseDB] updateUserName failed: $e');
     }
@@ -189,7 +191,7 @@ class FirebaseService {
   }) async {
     try {
       await _ensureAuthenticated();
-      await _db.child('live/$groupCode/$userId/icon').set(icon);
+      await _db.child('live/${sanitizeFirebaseKey(groupCode)}/${sanitizeFirebaseKey(userId)}/icon').set(icon);
     } catch (e) {
       debugPrint('[FirebaseDB] updateUserIcon failed: $e');
     }
@@ -197,12 +199,12 @@ class FirebaseService {
 
   /// Listen to all members in a group in real-time.
   Stream<DatabaseEvent> watchGroupMembers(String groupCode) {
-    return _db.child('live/$groupCode').onValue;
+    return _db.child('live/${sanitizeFirebaseKey(groupCode)}').onValue;
   }
 
   /// Remove the current user's node — called on manual "Leave Group".
   Future<void> removeUserFromGroup(String groupCode) async {
-    await _db.child('live/$groupCode/$userId').remove();
+    await _db.child('live/${sanitizeFirebaseKey(groupCode)}/${sanitizeFirebaseKey(userId)}').remove();
   }
 
   // ──────────────────── Chat Messages ────────────────────
@@ -217,7 +219,7 @@ class FirebaseService {
   }) async {
     try {
       await _ensureAuthenticated();
-      final ref = _db.child('live/$groupCode/$userId');
+      final ref = _db.child('live/${sanitizeFirebaseKey(groupCode)}/${sanitizeFirebaseKey(userId)}');
       final data = <String, dynamic>{
         'name': name,
         'lat': 0.0,
@@ -244,7 +246,7 @@ class FirebaseService {
   }) async {
     try {
       await _ensureAuthenticated();
-      final ref = _db.child('live/$groupCode/_chat').push();
+      final ref = _db.child('live/${sanitizeFirebaseKey(groupCode)}/_chat').push();
       await ref.set({
         'userId': userId,
         'name': _auth.currentUser?.displayName ?? 'عضو',
@@ -259,12 +261,12 @@ class FirebaseService {
 
   /// Listen to new chat messages in real-time (newest last).
   Stream<DatabaseEvent> watchMessages(String groupCode) {
-    return _db.child('live/$groupCode/_chat').orderByChild('timestamp').onValue;
+    return _db.child('live/${sanitizeFirebaseKey(groupCode)}/_chat').orderByChild('timestamp').onValue;
   }
 
   /// Get current user's stored name from Firebase.
   Future<String?> getUserName(String groupCode) async {
-    final snap = await _db.child('live/$groupCode/$userId/name').get();
+    final snap = await _db.child('live/${sanitizeFirebaseKey(groupCode)}/${sanitizeFirebaseKey(userId)}/name').get();
     return snap.value as String?;
   }
 
@@ -279,7 +281,8 @@ class FirebaseService {
   }) async {
     try {
       final db = FirebaseDatabase.instance.ref();
-      final ref = db.child('live/$groupCode/$userId/history').push();
+      final sk = sanitizeFirebaseKey;
+      final ref = db.child('live/${sk(groupCode)}/${sk(userId)}/history').push();
       await ref.set({
         'lat': lat,
         'lng': lng,
@@ -301,8 +304,9 @@ class FirebaseService {
   }) async {
     try {
       final db = FirebaseDatabase.instance.ref();
+      final sk = sanitizeFirebaseKey;
       final snap = await db
-          .child('live/$groupCode/$userId/history')
+          .child('live/${sk(groupCode)}/${sk(userId)}/history')
           .orderByChild('timestamp')
           .limitToLast(limit)
           .get();

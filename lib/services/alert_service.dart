@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'firebase_service.dart';
+import '../utils/firebase_path.dart';
 
 enum AlertType {
   police('🚔 شرطة', 'police', 0xFF1565C0),
@@ -110,7 +111,7 @@ class AlertService {
     await _firebase.signInAnonymously();
     final uid = _firebase.userId;
     final userName = _firebase.currentUser?.displayName ?? 'عضو';
-    final ref = _db.child('live/$groupCode/_alerts').push();
+    final ref = _db.child('live/${sanitizeFirebaseKey(groupCode)}/_alerts').push();
     final data = <String, dynamic>{
       'type': type.key,
       'lat': lat,
@@ -127,11 +128,11 @@ class AlertService {
   }
 
   Future<void> deleteAlert(String groupCode, String alertId) async {
-    await _db.child('live/$groupCode/_alerts/$alertId').remove();
+    await _db.child('live/${sanitizeFirebaseKey(groupCode)}/_alerts/${sanitizeFirebaseKey(alertId)}').remove();
   }
 
   Stream<List<AlertData>> watchAlerts(String groupCode) {
-    return _db.child('live/$groupCode/_alerts').onValue.map((event) {
+    return _db.child('live/${sanitizeFirebaseKey(groupCode)}/_alerts').onValue.map((event) {
       final snap = event.snapshot;
       if (!snap.exists) return [];
       final data = snap.value as Map<dynamic, dynamic>? ?? {};
@@ -155,7 +156,7 @@ class AlertService {
   }) async {
     await _firebase.signInAnonymously();
     final uid = _firebase.userId;
-    await _db.child('live/$groupCode/_alerts/$alertId/votes/$uid').set(vote);
+    await _db.child('live/${sanitizeFirebaseKey(groupCode)}/_alerts/${sanitizeFirebaseKey(alertId)}/votes/${sanitizeFirebaseKey(uid)}').set(vote);
   }
 
   /// Auto-remove alerts where enough users voted "gone".
@@ -165,7 +166,7 @@ class AlertService {
     String groupCode, {
     int threshold = 2,
   }) async {
-    final snap = await _db.child('live/$groupCode/_alerts').get();
+    final snap = await _db.child('live/${sanitizeFirebaseKey(groupCode)}/_alerts').get();
     if (!snap.exists) return;
     final data = snap.value is Map ? snap.value as Map<dynamic, dynamic> : null;
     if (data == null) return;
@@ -181,7 +182,7 @@ class AlertService {
           if (v == 'gone') goneCount++;
         }
         if (goneCount >= threshold) {
-          await _db.child('live/$groupCode/_alerts/${entry.key}').remove();
+          await _db.child('live/${sanitizeFirebaseKey(groupCode)}/_alerts/${sanitizeFirebaseKey(entry.key as String)}').remove();
           debugPrint(
             '[Alert] Auto-removed ${entry.key} — $goneCount "gone" votes',
           );
@@ -197,7 +198,7 @@ class AlertService {
   }) async {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final cutoff = nowMs - (expirationHours * 3600000);
-    final snap = await _db.child('live/$groupCode/_alerts').get();
+    final snap = await _db.child('live/${sanitizeFirebaseKey(groupCode)}/_alerts').get();
     if (!snap.exists) return 0;
     final data = snap.value as Map<dynamic, dynamic>? ?? {};
     int deleted = 0;
@@ -208,7 +209,7 @@ class AlertService {
         final type = AlertType.fromKey(map['type'] as String? ?? 'police');
         if (ts > 0 && ts < cutoff && type.isAlert) {
           try {
-            await _db.child('live/$groupCode/_alerts/${entry.key}').remove();
+            await _db.child('live/${sanitizeFirebaseKey(groupCode)}/_alerts/${sanitizeFirebaseKey(entry.key as String)}').remove();
             deleted++;
           } catch (_) {}
         }
@@ -224,7 +225,7 @@ class AlertService {
   }) async {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final cutoff = nowMs - (expirationHours * 3600000);
-    final snap = await _db.child('live/$groupCode/_chat').get();
+    final snap = await _db.child('live/${sanitizeFirebaseKey(groupCode)}/_chat').get();
     if (!snap.exists) return 0;
     final data = snap.value as Map<dynamic, dynamic>? ?? {};
     int deleted = 0;
@@ -234,7 +235,7 @@ class AlertService {
         final ts = (map['timestamp'] as num?)?.toInt() ?? 0;
         if (ts > 0 && ts < cutoff) {
           try {
-            await _db.child('live/$groupCode/_chat/${entry.key}').remove();
+            await _db.child('live/${sanitizeFirebaseKey(groupCode)}/_chat/${sanitizeFirebaseKey(entry.key as String)}').remove();
             deleted++;
           } catch (_) {}
         }

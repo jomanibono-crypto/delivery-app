@@ -20,6 +20,7 @@ import 'services/alert_service.dart';
 import 'services/proximity_service.dart';
 import 'services/app_settings.dart';
 import 'services/theme_service.dart';
+import 'utils/firebase_path.dart';
 
 /// ID of the notification channel used by the foreground location service.
 /// Must match the notificationChannelId passed to AndroidConfiguration below.
@@ -231,7 +232,7 @@ void onStart(ServiceInstance service) async {
 
     // ── Chat message listener (shows notification when app is closed) ──
     try {
-      final chatRef = FirebaseDatabase.instance.ref('live/$groupCode/_chat');
+      final chatRef = FirebaseDatabase.instance.ref('live/${sanitizeFirebaseKey(groupCode)}/_chat');
       chatSubBg = chatRef.orderByChild('timestamp').onValue.listen((event) {
         final snap = event.snapshot;
         if (!snap.exists) return;
@@ -293,7 +294,7 @@ void onStart(ServiceInstance service) async {
     // ── Alert marker listener for proximity checking ──
     try {
       final alertsRef = FirebaseDatabase.instance.ref(
-        'live/$groupCode/_alerts',
+        'live/${sanitizeFirebaseKey(groupCode)}/_alerts',
       );
       alertsSubBg = alertsRef.onValue.listen((event) {
         final snap = event.snapshot;

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'firebase_service.dart';
 import 'alert_service.dart';
 import 'notification_service.dart';
+import '../utils/firebase_path.dart';
 
 /// Global alert notification listener that lives for the app's lifetime.
 ///
@@ -31,7 +32,7 @@ class AlertNotificationService {
     stopListening();
     _currentGroupCode = groupCode;
     _subscription = _db
-        .child('live/$groupCode/_alerts')
+        .child('live/${sanitizeFirebaseKey(groupCode)}/_alerts')
         .orderByChild('timestamp')
         .limitToLast(50)
         .onValue
