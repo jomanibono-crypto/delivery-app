@@ -9,7 +9,8 @@ import 'group_screen.dart';
 import 'home_screen.dart';
 
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key});
+  final Color accentColor;
+  const SplashScreen({super.key, required this.accentColor});
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -187,11 +188,15 @@ class _SplashScreenState extends State<SplashScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFFFF9800), Color(0xFFF57C00), Color(0xFFEF6C00)],
+            colors: [
+              widget.accentColor,
+              widget.accentColor.withValues(alpha: 0.8),
+              widget.accentColor.withValues(alpha: 0.6),
+            ],
           ),
         ),
         child: SafeArea(
@@ -266,7 +271,7 @@ class _SplashScreenState extends State<SplashScreen>
                           label: const Text('إعادة المحاولة'),
                           style: FilledButton.styleFrom(
                             backgroundColor: Colors.white,
-                            foregroundColor: const Color(0xFFE65100),
+                            foregroundColor: widget.accentColor,
                           ),
                         ),
                       ],

@@ -55,14 +55,21 @@ class _MapScreenState extends State<MapScreen> {
   bool _mapReady = false;
   bool _tilesRevealed = false;
   bool _userInteracted = false;
+  bool _gpsAnimated = false;
   bool _fellBackToOsm = false;
   String _tileUrl = MapboxConfig.mapboxTileUrl;
   int _tileErrors = 0;
 
   String? _error;
 
-  Map<String, Map<String, dynamic>> _members = {};
-  List<AlertData> _alerts = [];
+  // Use ValueNotifier so marker layers rebuild independently of FlutterMap
+  final ValueNotifier<Map<String, Map<String, dynamic>>> _membersNotifier =
+      ValueNotifier({});
+  final ValueNotifier<List<AlertData>> _alertsNotifier =
+      ValueNotifier([]);
+  Map<String, Map<String, dynamic>> get _members => _membersNotifier.value;
+  List<AlertData> get _alerts => _alertsNotifier.value;
+
   List<LatLng> _route = [];
   String? _followingMemberId;
 
@@ -111,41 +118,44 @@ class _MapScreenState extends State<MapScreen> {
       final lastKnown = await _locationSvc.getLastKnownLocation();
 
       if (lastKnown != null) {
-        debugPrint('[Map] Last known found: $lastKnown — will center there');
+        debugPrint('[Map] Last known found: $lastKnown');
         _pendingCamera = lastKnown;
         _pendingZoom = 16.0;
       } else {
-        debugPrint('[Map] No last known location — defaulting to Agadir');
+        debugPrint('[Map] No last known — defaulting to Agadir');
         _pendingCamera = MapCameraService.defaultCenter;
         _pendingZoom = MapCameraService.defaultZoom;
       }
 
-      // 2. Real GPS in background — smooth camera on success
-      _locationSvc.getCurrentLocation().then((gps) {
-        if (gps != null && mounted) {
-          debugPrint('[Map] GPS acquired: $gps — moving camera');
-          if (_mapReady) {
-            _mapCtrl.move(gps, 16.0);
-          } else {
-            _pendingCamera = gps;
-            _pendingZoom = 16.0;
+      // 2. Run GPS, route, and cleanup in parallel
+      Future.wait([
+        _locationSvc.getCurrentLocation().then((gps) {
+          if (gps != null && mounted && !_gpsAnimated) {
+            _gpsAnimated = true;
+            debugPrint('[Map] GPS acquired: $gps');
+            if (_mapReady) {
+              _mapCtrl.move(gps, 16.0);
+            } else {
+              _pendingCamera = gps;
+              _pendingZoom = 16.0;
+            }
           }
-        }
-      });
+        }),
+        _loadRoute(),
+        _runCleanup(),
+      ]);
 
-      // 3–4. Route history
-      _loadRoute();
+      // 3–4. Periodic route refresh
       _historyTimer = Timer.periodic(
         const Duration(seconds: 30), (_) => _loadRoute(),
       );
-      debugPrint('[Map] Route history started');
+      debugPrint('[Map] Route refresh started');
 
-      // 5. Listeners
+      // 5. Listeners (immediate, non-blocking)
       _listenMembers();
       debugPrint('[Map] Member listener started');
       _listenAlerts();
       debugPrint('[Map] Alert listener started');
-      _runCleanup();
 
       debugPrint('[Map] Init complete — waiting for onMapReady');
     } catch (e) {
@@ -183,7 +193,7 @@ class _MapScreenState extends State<MapScreen> {
       });
 
       if (!mounted) return;
-      setState(() => _members = updated);
+      _membersNotifier.value = updated;
 
       // Smart camera on first data
       if (!_tilesRevealed && _mapReady) {
@@ -193,8 +203,7 @@ class _MapScreenState extends State<MapScreen> {
       // Follow member or fit bounds (but not if user manually panned)
       if (_followingMemberId != null && !_userInteracted) {
         _followMember();
-      } else if (_followingMemberId == null && _tilesRevealed && !_userInteracted && _members.length >= 3) {
-        // Only auto-fit when there are enough members to make it useful
+      } else if (_followingMemberId == null && _tilesRevealed && !_userInteracted && _membersNotifier.value.length >= 3) {
         _fitBounds();
       }
     }, onError: (_) {});
@@ -203,7 +212,7 @@ class _MapScreenState extends State<MapScreen> {
   void _listenAlerts() {
     _alertsSub = _alertSvc.watchAlerts(widget.groupCode).listen((alerts) {
       if (!mounted) return;
-      setState(() => _alerts = alerts.where((a) => !a.resolved).toList());
+      _alertsNotifier.value = alerts.where((a) => !a.resolved).toList();
     });
   }
 
@@ -994,49 +1003,60 @@ class _MapScreenState extends State<MapScreen> {
     // Map content
     final mapBody = Stack(
       children: [
-        FlutterMap(
-          mapController: _mapCtrl,
-          options: MapOptions(
-            initialCenter: MapCameraService.defaultCenter,
-            initialZoom: 13,
-            minZoom: 3,
-            maxZoom: 18,
-          onMapReady: () {
-            _mapReadySafetyTimer?.cancel();
-            setState(() => _mapReady = true);
-            debugPrint('[Map] onMapReady fired — applying pending camera');
-            // Apply the pending camera position now that the map is mounted
-            if (_pendingCamera != null) {
-              _mapCtrl.move(_pendingCamera!, _pendingZoom);
-              debugPrint('[Map] Camera moved to $_pendingCamera zoom=$_pendingZoom');
-            }
-          },
-            onPositionChanged: (_, hasGesture) {
-              if (hasGesture) _userInteracted = true;
+        RepaintBoundary(
+          child: FlutterMap(
+            mapController: _mapCtrl,
+            options: MapOptions(
+              initialCenter: MapCameraService.defaultCenter,
+              initialZoom: 15.5,
+              minZoom: 3,
+              maxZoom: 18,
+            onMapReady: () {
+              _mapReadySafetyTimer?.cancel();
+              setState(() => _mapReady = true);
+              debugPrint('[Map] onMapReady fired — applying pending camera');
+              if (_pendingCamera != null) {
+                _mapCtrl.move(_pendingCamera!, _pendingZoom);
+                debugPrint('[Map] Camera moved to $_pendingCamera zoom=$_pendingZoom');
+              }
             },
-            onLongPress: _onLongPress,
-          ),
-          children: [
-            TileLayer(
-              urlTemplate: _tileUrl,
-              userAgentPackageName: MapboxConfig.attributionPackage,
-              maxNativeZoom: MapboxConfig.maxNativeZoom,
-              tileProvider: MapCacheService.tileProvider(_tileUrl),
-              errorTileCallback: _onTileError,
+              onPositionChanged: (_, hasGesture) {
+                if (hasGesture) _userInteracted = true;
+              },
+              onLongPress: _onLongPress,
             ),
-            if (_route.length >= 2)
-              PolylineLayer(
-                polylines: [
-                  Polyline(
-                    points: _route,
-                    color: theme.colorScheme.secondary.withValues(alpha: 0.5),
-                    strokeWidth: 4,
-                  ),
-                ],
+            children: [
+              TileLayer(
+                urlTemplate: _tileUrl,
+                userAgentPackageName: MapboxConfig.attributionPackage,
+                maxNativeZoom: MapboxConfig.maxNativeZoom,
+                tileProvider: MapCacheService.tileProvider(_tileUrl),
+                errorTileCallback: _onTileError,
               ),
-            MarkerLayer(markers: _buildAlertMarkers()),
-            MarkerLayer(markers: _buildMemberMarkers()),
-          ],
+              if (_route.length >= 2)
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: _route,
+                      color: theme.colorScheme.secondary.withValues(alpha: 0.5),
+                      strokeWidth: 4,
+                    ),
+                  ],
+                ),
+              ValueListenableBuilder(
+                valueListenable: _alertsNotifier,
+                builder: (_, alerts, _) => MarkerLayer(
+                  markers: _buildAlertMarkers(),
+                ),
+              ),
+              ValueListenableBuilder(
+                valueListenable: _membersNotifier,
+                builder: (_, members, _) => MarkerLayer(
+                  markers: _buildMemberMarkers(),
+                ),
+              ),
+            ],
+          ),
         ),
         // Member selector buttons
         Positioned(

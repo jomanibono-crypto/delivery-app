@@ -73,6 +73,10 @@ Future<void> main() async {
 
   await configureBackgroundService();
 
+  // Load theme settings BEFORE rendering splash so the accent color is known
+  final themeService = ThemeService();
+  await themeService.load();
+
   runApp(const GlovoMateApp());
 }
 
@@ -405,13 +409,12 @@ class GlovoMateApp extends StatefulWidget {
 }
 
 class _GlovoMateAppState extends State<GlovoMateApp> {
-  final ThemeService _themeService = ThemeService();
+  late final ThemeService _themeService = ThemeService();
 
   @override
   void initState() {
     super.initState();
     _themeService.addListener(_onThemeChanged);
-    _themeService.load();
   }
 
   @override
@@ -433,7 +436,7 @@ class _GlovoMateAppState extends State<GlovoMateApp> {
       theme: _themeService.lightTheme(accent),
       darkTheme: _themeService.darkTheme(accent),
       themeMode: _themeService.flutterThemeMode,
-      home: const SplashScreen(),
+      home: SplashScreen(accentColor: accent),
     );
   }
 }

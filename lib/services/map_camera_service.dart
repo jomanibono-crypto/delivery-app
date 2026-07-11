@@ -6,7 +6,7 @@ import 'package:latlong2/latlong.dart';
 class MapCameraService {
   /// Default fallback center (Agadir, Morocco).
   static const LatLng defaultCenter = LatLng(30.4278, -9.5981);
-  static const double defaultZoom = 13.0;
+  static const double defaultZoom = 15.5;
   static const double userZoom = 16.0;
 
   /// Decide center and zoom based on members and user position.
