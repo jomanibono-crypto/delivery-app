@@ -452,18 +452,49 @@ class MapScreenState extends State<MapScreen> {
 
   void _initCamera() async {
     try {
+      // 1. Try last known position (instant, no GPS needed)
       final lastPos = await Geolocator.getLastKnownPosition();
       if (lastPos != null && mounted) {
         final target = LatLng(lastPos.latitude, lastPos.longitude);
         _mapController.move(target, 16);
-        if (mounted) {
-          setState(() => _initialLocationReady = true);
-        }
+        if (mounted) setState(() => _initialLocationReady = true);
         _firstLocationReceived = true;
         debugPrint('[Map] Last known location: $target');
+        return;
       }
     } catch (_) {
-      // No cached location — wait for GPS location from Firebase
+      // Ignore — fall through to GPS
+    }
+
+    // 2. No cached location — request current GPS position directly.
+    //    This prevents the loading screen from hanging forever waiting
+    //    for Firebase data that may arrive slowly or never.
+    if (!mounted) return;
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: AndroidSettings(
+          accuracy: LocationAccuracy.high,
+          intervalDuration: const Duration(seconds: 1),
+        ),
+      ).timeout(const Duration(seconds: 8));
+      if (mounted) {
+        final target = LatLng(pos.latitude, pos.longitude);
+        _mapController.move(target, 16);
+        setState(() => _initialLocationReady = true);
+        _firstLocationReceived = true;
+        debugPrint('[Map] GPS position obtained directly: $target');
+        return;
+      }
+    } catch (_) {
+      // GPS failed — fall through to Agadir default
+    }
+
+    // 3. Fallback: show the map with the Agadir default so the user
+    //    never gets stuck on a loading screen. Firebase data will
+    //    update the camera when it arrives (see _listenToMembers).
+    if (mounted) {
+      setState(() => _initialLocationReady = true);
+      debugPrint('[Map] No position available — showing Agadir fallback');
     }
   }
 

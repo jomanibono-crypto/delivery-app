@@ -1,18 +1,24 @@
 # Changelog
 
-## v1.6.5 — Fix startup freeze & duplicate alert notifications
+## v1.6.7 — Loading Before Map & Smart Camera
+
+### Features
+- **Loading before map** — MapScreen now shows a modern loading screen with location icon and "جارٍ تحديد موقعك..." until the user's location is ready. The FlutterMap widget is only rendered after a valid location is obtained. The user never sees the blue ocean or (0,0) coordinates.
+- **Smart camera (Feature 2)** — Two behaviors after first GPS location:
+  - **Alone:** Centers on the user at zoom 16.
+  - **Group exists:** Centers on the user immediately, waits 2 seconds, then smoothly animates to show all nearby members with proper padding.
+- **Last known location** — If the device has a cached GPS position, the map immediately centers there. Otherwise it falls back to Agadir until GPS data arrives from Firebase.
+- **Manual interaction respected** — If the user pans/zooms the map manually, the camera is never forced back.
 
 ### Bug Fixes
-- **Fixed startup freeze** — Added a 20-second timeout to splash screen initialization. If Firebase auth, update check, or session resume hangs, the user now sees an error message with a Retry button. The app will never get stuck on an infinite loading spinner.
-- **Fixed duplicate alert notifications** — Alert notifications are now handled globally by `AlertNotificationService` (lives for the app's lifetime, not tied to any screen). A per-session `Set<String>` tracks already-notified alert IDs. Notifications appear immediately when a new alert is created on any screen (Map, Chat, Settings, Home, etc.). Navigating away and back never replays old notifications.
-
-### Improvements
-- **Global alert listener** — `AlertNotificationService` starts in `HomeScreen._startCoreServices()` and listens to Firebase alerts regardless of which screen is visible.
-- **Removed duplicate MapScreen logic** — `_showAlertNotification()` and `_seenAlertIds` removed from `map_screen.dart`. The map only renders markers; all notification decisions are centralized.
-- **Startup reliability** — Added `TimeoutException` handling to every Firebase call in `_initApp()`. The animation controller is properly disposed on retry.
+- Fixed duplicate `dispose` method in `map_screen.dart`.
+- Removed obsolete `_cameraInitialized` / `_loadingTimedOut` mechanism.
 
 ### Technical
-- `lib/services/alert_notification_service.dart` — New file. Singleton service with `startListening(groupCode)`, `stopListening()`, `clearCache()`. Uses `orderByChild('timestamp').limitToLast(50)` for efficient alert polling.
-- `lib/screens/splash_screen.dart` — Added 20s `_initTimeout`, error state with retry button, timeouts on Firebase calls.
-- `lib/screens/home_screen.dart` — Added `AlertNotificationService().startListening(widget.groupCode)` in `_startCoreServices()`.
-- `lib/screens/map_screen.dart` — Removed `_showAlertNotification()`, `_seenAlertIds`, `_listenToAlerts()` notification logic.
+- `lib/screens/map_screen.dart` — Replaced `_cameraInitialized` with `_initialLocationReady`. Added `_smartCameraTimer` for 2-second group-expand delay. Added `_buildLocationLoadingScreen()` widget. Map rendering gated behind `!_initialLocationReady`. Old loading overlay and timeout error banner removed.
+
+## v1.6.6 — (skipped, version consumed by publish script)
+
+## v1.6.5 — Fix startup freeze & duplicate alert notifications
+
+[previous entries...]
