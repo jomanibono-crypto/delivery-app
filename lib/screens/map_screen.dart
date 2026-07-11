@@ -45,6 +45,12 @@ class _MapScreenState extends State<MapScreen> {
   StreamSubscription<List<AlertData>>? _alertsSub;
   Timer? _historyTimer;
   Timer? _smartCameraDelay;
+  Timer? _initSafetyTimer;
+  Timer? _mapReadySafetyTimer;
+
+  // ── Pending camera position (set before map is ready, applied in onMapReady) ──
+  LatLng? _pendingCamera;
+  double _pendingZoom = 13;
 
   // ── State ──
   bool _ready = false;
@@ -76,6 +82,13 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
+    // Safety timeout: force _mapReady after 5s so loading shade clears
+    _mapReadySafetyTimer = Timer(const Duration(seconds: 5), () {
+      if (mounted && !_mapReady) {
+        debugPrint('[Map] ⚠️ Map-ready safety timeout — forcing mapReady=true');
+        setState(() => _mapReady = true);
+      }
+    });
     _initSequence();
   }
 
@@ -85,6 +98,8 @@ class _MapScreenState extends State<MapScreen> {
     _alertsSub?.cancel();
     _historyTimer?.cancel();
     _smartCameraDelay?.cancel();
+    _initSafetyTimer?.cancel();
+    _mapReadySafetyTimer?.cancel();
     _mapCtrl.dispose();
     super.dispose();
   }
@@ -94,37 +109,52 @@ class _MapScreenState extends State<MapScreen> {
   // ═══════════════════════════════════════════════
 
   Future<void> _initSequence() async {
+    // Safety timeout: force ready after 5s regardless of any blocking step
+    _initSafetyTimer = Timer(const Duration(seconds: 5), () {
+      if (mounted && !_ready) {
+        debugPrint('[Map] ⚠️ Safety timeout reached — forcing ready state');
+        setState(() => _ready = true);
+      }
+    });
+
     try {
-      // 1. Resolve location
+      debugPrint('[Map] Step 1/6: Resolving location...');
       final loc = await _locationSvc.resolve();
+      debugPrint('[Map] Step 1/6 done — location=${loc?.toString() ?? 'null (fallback)'}');
 
-      // 2. Pre-position the camera (Agadir fallback if no location)
-      final center = loc ?? MapCameraService.defaultCenter;
-      final zoom = loc != null ? 16.0 : 13.0;
-      if (mounted) _mapCtrl.move(center, zoom);
+      // Store the desired camera position — will be applied in onMapReady
+      // after FlutterMap is mounted. We CANNOT call _mapCtrl.move() here
+      // because the map widget hasn't been rendered yet.
+      _pendingCamera = loc ?? MapCameraService.defaultCenter;
+      _pendingZoom = loc != null ? 16.0 : 13.0;
+      debugPrint('[Map] Step 2/6: Pending camera=$_pendingCamera zoom=$_pendingZoom');
 
-      // 3. Load route history (non-blocking)
+      // 3-4. Route history
       _loadRoute();
+      _historyTimer = Timer.periodic(const Duration(seconds: 30), (_) => _loadRoute());
+      debugPrint('[Map] Step 3-4/6: Route history started');
 
-      // 4. Schedule periodic route refresh
-      _historyTimer = Timer.periodic(
-        const Duration(seconds: 30),
-        (_) => _loadRoute(),
-      );
-
-      // 5. Start real-time member + alert listeners
+      // 5. Listeners
       _listenMembers();
+      debugPrint('[Map] Step 5a/6: Member listener started');
       _listenAlerts();
+      debugPrint('[Map] Step 5b/6: Alert listener started');
       _runCleanup();
 
-      // 6. Mark ready — triggers the tile-reveal timer in onMapReady
-      if (mounted) setState(() => _ready = true);
-
-      debugPrint('[Map] Init complete — ready=$_ready, location=$center');
-    } catch (e) {
-      debugPrint('[Map] Init failed: $e');
+      // 6. Mark ready
       if (mounted) {
-        setState(() => _error = 'تعذّر تحميل الخريطة: $e');
+        _initSafetyTimer?.cancel();
+        setState(() => _ready = true);
+        debugPrint('[Map] Step 6/6: Ready=true — map should appear now');
+      }
+    } catch (e) {
+      debugPrint('[Map] ❌ Init failed: $e');
+      if (mounted) {
+        _initSafetyTimer?.cancel();
+        setState(() {
+          _ready = true; // Force ready even on error
+          _error = 'تعذّر تحميل الخريطة: $e';
+        });
       }
     }
   }
@@ -840,7 +870,11 @@ class _MapScreenState extends State<MapScreen> {
     if (!_ready) {
       return widget.embedded
           ? const MapLoadingView()
-          : Scaffold(appBar: _buildAppBar(), body: const MapLoadingView());
+          : Scaffold(
+              appBar: _buildAppBar(),
+              body: const MapLoadingView(),
+              bottomNavigationBar: _buildBottomNav(),
+            );
     }
 
     // Error state
@@ -868,11 +902,14 @@ class _MapScreenState extends State<MapScreen> {
             minZoom: 3,
             maxZoom: 18,
           onMapReady: () {
+            _mapReadySafetyTimer?.cancel();
             setState(() => _mapReady = true);
-            // Reveal tiles after delay, even before member data arrives
-            Future.delayed(const Duration(milliseconds: 1500), () {
-              if (mounted) setState(() {});
-            });
+            debugPrint('[Map] onMapReady fired — applying pending camera');
+            // Apply the pending camera position now that the map is mounted
+            if (_pendingCamera != null) {
+              _mapCtrl.move(_pendingCamera!, _pendingZoom);
+              debugPrint('[Map] Camera moved to $_pendingCamera zoom=$_pendingZoom');
+            }
           },
             onPositionChanged: (_, hasGesture) {
               if (hasGesture) _userInteracted = true;

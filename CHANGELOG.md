@@ -1,16 +1,32 @@
 # Changelog
 
-## v1.6.9 — Fix blue map on startup & duplicated bottom navigation
+## v1.7.3 — Health Dashboard
 
-### Bug Fixes
-- **Fixed blue map on startup (Bug #1)** — The FlutterMap widget is now hidden behind a `_mapTilesReady` flag. After `onMapReady` fires, a 1.5-second timer gives tiles time to load before the map is revealed. On tile-failure fallback, the timer shortens to 500ms. The loading screen ("جارٍ تحديد موقعك...") covers the map until tiles are ready. The user never sees a blue ocean, empty tiles, or (0,0) camera.
-- **Fixed duplicated bottom navigation (Bug #2)** — MapScreen had its own Scaffold with bottom nav, and was also embedded inside HomeScreen's Scaffold which also had a bottom nav. This created nested Scaffolds. Added `embedded` parameter to MapScreen — when true, it returns only the map content without a Scaffold wrapper. HomeScreen passes `embedded: true` when showing the map directly.
-- **Removed nested Scaffolds** — MapScreen's standalone mode (still has Scaffold + bottom nav) is used only when navigated to directly. No more double bottom nav, no flicker, no duplicate widgets.
+### New Features
+- **Health Dashboard** — New screen accessible from Settings. Provides real-time monitoring of every system component.
+- **Live Status Cards** — Green/Yellow/Red indicators for GPS, Internet, Firebase, Background Service, Notifications, Vibration, Map Engine, and Auto Update.
+- **GPS Details** — Latitude, longitude, accuracy, speed, heading, altitude, provider, permission state, background permission.
+- **Network Status** — Connection state, estimated ping latency, connection type.
+- **Firebase Status** — Authentication state, database connection, last read/write success.
+- **Group Info** — Online/offline member counts, current group ID.
+- **Map Status** — Current zoom, camera position, loaded markers, map readiness, tile loading state.
+- **System Info** — App version, build number, device model, Android version.
+- **Diagnostic Tools** — Individual test buttons for GPS, Firebase, Internet, Notifications, Vibration, and Auto Update.
+- **Full Diagnostic** — Runs all checks simultaneously and shows pass/fail results.
+- **Report Export** — Generates a formatted health report copied to the clipboard.
+
+### Files Added
+- `lib/services/health_service.dart` — Singleton service that collects all health data from existing services (Geolocator, Firebase, HTTP, PackageInfo).
+- `lib/screens/health_dashboard.dart` — Full-screen Material 3 dashboard with all status cards, diagnostic buttons, and export.
+- `lib/screens/settings_screen.dart` — Added navigation button to Health Dashboard in the Appearance section.
 
 ### Technical
-- `lib/screens/map_screen.dart` — Added `_mapTilesReady`, `_mapRevealTimer`, `widget.embedded`. Build method gated behind both `_initialLocationReady` and `_mapTilesReady`. Standalone path returns Scaffold with AppBar + body + bottom nav. Embedded path returns only `mapContent` (no Scaffold).
-- `lib/screens/home_screen.dart` — Passes `embedded: true` to MapScreen.
+- No polling loops — all data collected on-demand via `_refresh()` or individual diagnostics.
+- Uses existing `Geolocator`, `FirebaseDatabase`, `http` packages (no new dependencies).
+- All listeners properly disposed.
 
-## v1.6.8 — Fix map loading freeze
+## v1.7.2 — (skipped, version consumed by publish script)
+
+## v1.7.1 — MapScreen rebuild: clean architecture, validation fixes
 
 [previous entries...]
