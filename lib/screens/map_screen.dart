@@ -27,7 +27,17 @@ class MapScreen extends StatefulWidget {
   final String groupCode;
   final String userName;
 
-  const MapScreen({super.key, required this.groupCode, required this.userName});
+  /// When true, this screen is embedded inside another Scaffold
+  /// (e.g. HomeScreen) and should NOT create its own Scaffold/AppBar.
+  /// When false (standalone), it creates a full Scaffold with AppBar.
+  final bool embedded;
+
+  const MapScreen({
+    super.key,
+    required this.groupCode,
+    required this.userName,
+    this.embedded = false,
+  });
 
   @override
   State<MapScreen> createState() => MapScreenState();
@@ -58,6 +68,12 @@ class MapScreenState extends State<MapScreen> {
 
   // 2-second timer that triggers the group-fit animation (Feature 2).
   Timer? _smartCameraTimer;
+
+  // ── Tile-loading state (Bug #1) ──
+  // Set to true after onMapReady + a short delay so tiles are visible
+  // before the map is revealed. Prevents blue-ocean flash.
+  bool _mapTilesReady = false;
+  Timer? _mapRevealTimer;
 
   // AUDIT-3: tile-failure tracking. After a few consecutive tile errors we
   // switch to the OSM fallback URL so the map isn't blank.
@@ -107,6 +123,7 @@ class MapScreenState extends State<MapScreen> {
     _membersSubscription?.cancel();
     _historyRefreshTimer?.cancel();
     _smartCameraTimer?.cancel();
+    _mapRevealTimer?.cancel();
     _mapController.dispose();
     super.dispose();
   }
@@ -123,6 +140,16 @@ class MapScreenState extends State<MapScreen> {
         _tileUrl = MapboxConfig.osmFallbackTileUrl;
         _fellBackToOsm = true;
       });
+      // Reveal the map immediately on fallback — OSM tiles will load asap
+      if (!_mapTilesReady) {
+        _mapRevealTimer?.cancel();
+        _mapRevealTimer = Timer(
+          const Duration(milliseconds: 500),
+          () {
+            if (mounted) setState(() => _mapTilesReady = true);
+          },
+        );
+      }
     }
   }
 
@@ -1474,7 +1501,149 @@ class MapScreenState extends State<MapScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    const buttonSpacing = 16.0;
+
+    final mapContent = !_initialLocationReady || !_mapTilesReady
+        ? _buildLocationLoadingScreen()
+        : _members.isEmpty
+            ? Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 72,
+                      height: 72,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Icon(
+                        Icons.map_outlined,
+                        size: 36,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'في انتظار الأعضاء...',
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : Stack(
+                children: [
+                  FlutterMap(
+                    mapController: _mapController,
+                    options: MapOptions(
+                      initialCenter: const LatLng(33.97, -6.85),
+                      initialZoom: 13,
+                      minZoom: 3,
+                      maxZoom: 18,
+                      onMapReady: () {
+                        debugPrint('[Map] onMapReady fired.');
+                        setState(() => _mapReady = true);
+                        _fitCameraToBounds();
+                        _mapRevealTimer?.cancel();
+                        _mapRevealTimer = Timer(
+                          const Duration(milliseconds: 1500),
+                          () {
+                            if (mounted) {
+                              setState(() => _mapTilesReady = true);
+                              debugPrint('[Map] Tiles ready — map revealed');
+                            }
+                          },
+                        );
+                      },
+                      onPositionChanged: (position, hasGesture) {
+                        if (hasGesture) {
+                          _userInteracted = true;
+                        }
+                      },
+                      onLongPress: (tapPosition, point) =>
+                          _onMapLongPress(tapPosition, point),
+                    ),
+                    children: [
+                      TileLayer(
+                        urlTemplate: _tileUrl,
+                        userAgentPackageName: MapboxConfig.attributionPackage,
+                        maxNativeZoom: MapboxConfig.maxNativeZoom,
+                        tileProvider: MapCacheService.tileProvider(_tileUrl),
+                        errorTileCallback: _onTileError,
+                      ),
+                      if (_routePoints.length >= 2)
+                        PolylineLayer(
+                          polylines: [
+                            Polyline(
+                              points: _routePoints,
+                              color: theme.colorScheme.secondary.withValues(
+                                alpha: 0.5,
+                              ),
+                              strokeWidth: 4,
+                            ),
+                          ],
+                        ),
+                      MarkerLayer(markers: _buildAlertMarkers()),
+                      MarkerLayer(markers: _buildMarkers()),
+                    ],
+                  ),
+                  // MEMBER SELECTOR BUTTONS
+                  Positioned(
+                    right: 16,
+                    bottom: 16,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        if (_followingMemberId != null)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: FloatingActionButton.extended(
+                              heroTag: 'showAllBtn',
+                              onPressed: _showAllMembers,
+                              icon: const Icon(Icons.group_work_rounded),
+                              label: const Text('الكل'),
+                              backgroundColor: theme.colorScheme.primary,
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                        FloatingActionButton(
+                          heroTag: 'memberPickerBtn',
+                          onPressed: _openMemberPicker,
+                          tooltip: 'اختر عضواً',
+                          backgroundColor: Colors.white,
+                          foregroundColor: theme.colorScheme.primary,
+                          child: const Icon(Icons.people_alt_outlined),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // OSM fallback indicator.
+                  if (_fellBackToOsm && _mapReady)
+                    Positioned(
+                      top: 8,
+                      left: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Text(
+                          'OpenStreetMap',
+                          style: TextStyle(color: Colors.white, fontSize: 11),
+                        ),
+                      ),
+                    ),
+                ],
+              );
+
+    // Bug #2: when used embedded (inside HomeScreen), skip the Scaffold
+    if (widget.embedded) return mapContent;
 
     return Scaffold(
       appBar: AppBar(
@@ -1486,174 +1655,8 @@ class MapScreenState extends State<MapScreen> {
             const Text('خريطة المجموعة'),
           ],
         ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(left: 12),
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.secondaryContainer,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.people_rounded,
-                      size: 16,
-                      color: theme.colorScheme.secondary,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${_members.length}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: theme.colorScheme.onSecondaryContainer,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
       ),
-      body: !_initialLocationReady
-          ? _buildLocationLoadingScreen()
-          : _members.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 72,
-                    height: 72,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Icon(
-                      Icons.map_outlined,
-                      size: 36,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'في انتظار الأعضاء...',
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            )
-          : Stack(
-              children: [
-                FlutterMap(
-                  mapController: _mapController,
-                  options: MapOptions(
-                    initialCenter: const LatLng(33.97, -6.85),
-                    initialZoom: 13,
-                    minZoom: 3,
-                    maxZoom: 18,
-                    onMapReady: () {
-                      debugPrint('[Map] onMapReady fired.');
-                      setState(() => _mapReady = true);
-                      _fitCameraToBounds();
-                    },
-                    onPositionChanged: (position, hasGesture) {
-                      if (hasGesture) {
-                        _userInteracted = true;
-                      }
-                    },
-                    onLongPress: (tapPosition, point) =>
-                        _onMapLongPress(tapPosition, point),
-                  ),
-                  children: [
-                    TileLayer(
-                      urlTemplate: _tileUrl,
-                      userAgentPackageName: MapboxConfig.attributionPackage,
-                      maxNativeZoom: MapboxConfig.maxNativeZoom,
-                      tileProvider: MapCacheService.tileProvider(_tileUrl),
-                      errorTileCallback: _onTileError,
-                    ),
-                    if (_routePoints.length >= 2)
-                      PolylineLayer(
-                        polylines: [
-                          Polyline(
-                            points: _routePoints,
-                            color: theme.colorScheme.secondary.withValues(
-                              alpha: 0.5,
-                            ),
-                            strokeWidth: 4,
-                          ),
-                        ],
-                      ),
-                    MarkerLayer(markers: _buildAlertMarkers()),
-                    MarkerLayer(markers: _buildMarkers()),
-                  ],
-                ),
-
-                // MEMBER SELECTOR BUTTONS
-                Positioned(
-                  right: 16,
-                  bottom: buttonSpacing,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      if (_followingMemberId != null)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: FloatingActionButton.extended(
-                            heroTag: 'showAllBtn',
-                            onPressed: _showAllMembers,
-                            icon: const Icon(Icons.group_work_rounded),
-                            label: const Text('الكل'),
-                            backgroundColor: theme.colorScheme.primary,
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
-                      FloatingActionButton(
-                        heroTag: 'memberPickerBtn',
-                        onPressed: _openMemberPicker,
-                        tooltip: 'اختر عضواً',
-                        backgroundColor: Colors.white,
-                        foregroundColor: theme.colorScheme.primary,
-                        child: const Icon(Icons.people_alt_outlined),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // OSM fallback indicator.
-                if (_fellBackToOsm && _mapReady)
-                  Positioned(
-                    top: 8,
-                    left: 8,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black54,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Text(
-                        'OSM',
-                        style: TextStyle(color: Colors.white, fontSize: 10),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
+      body: mapContent,
       bottomNavigationBar: _buildBottomNav(),
     );
   }

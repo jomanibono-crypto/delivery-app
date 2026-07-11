@@ -662,7 +662,7 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ],
       ),
       body: _showMapDirectly
-          ? MapScreen(groupCode: widget.groupCode, userName: widget.userName)
+          ? MapScreen(groupCode: widget.groupCode, userName: widget.userName, embedded: true)
           : _errorMessage.isNotEmpty
           ? Center(
               child: Padding(

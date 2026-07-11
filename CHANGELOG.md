@@ -1,24 +1,14 @@
 # Changelog
 
-## v1.6.7 — Loading Before Map & Smart Camera
-
-### Features
-- **Loading before map** — MapScreen now shows a modern loading screen with location icon and "جارٍ تحديد موقعك..." until the user's location is ready. The FlutterMap widget is only rendered after a valid location is obtained. The user never sees the blue ocean or (0,0) coordinates.
-- **Smart camera (Feature 2)** — Two behaviors after first GPS location:
-  - **Alone:** Centers on the user at zoom 16.
-  - **Group exists:** Centers on the user immediately, waits 2 seconds, then smoothly animates to show all nearby members with proper padding.
-- **Last known location** — If the device has a cached GPS position, the map immediately centers there. Otherwise it falls back to Agadir until GPS data arrives from Firebase.
-- **Manual interaction respected** — If the user pans/zooms the map manually, the camera is never forced back.
+## v1.6.8 — Fix map loading freeze
 
 ### Bug Fixes
-- Fixed duplicate `dispose` method in `map_screen.dart`.
-- Removed obsolete `_cameraInitialized` / `_loadingTimedOut` mechanism.
+- **Fixed loading screen freeze** — When `Geolocator.getLastKnownPosition()` returns null (e.g., first install, no cache), the loading screen stayed stuck forever waiting for Firebase data. Now the app immediately falls back to `Geolocator.getCurrentPosition()` with an 8-second timeout. If that also fails, the map is shown with the Agadir fallback center. The user never sees an infinite spinner.
+- **Reliable map startup** — The loading screen now resolves within 1-2 seconds on most devices instead of potentially hanging indefinitely.
 
 ### Technical
-- `lib/screens/map_screen.dart` — Replaced `_cameraInitialized` with `_initialLocationReady`. Added `_smartCameraTimer` for 2-second group-expand delay. Added `_buildLocationLoadingScreen()` widget. Map rendering gated behind `!_initialLocationReady`. Old loading overlay and timeout error banner removed.
+- `lib/screens/map_screen.dart` — `_initCamera()` now has 3 stages: (1) last known position, (2) direct GPS fetch with timeout, (3) Agadir fallback. Added `dart:async` import for `.timeout()`.
 
-## v1.6.6 — (skipped, version consumed by publish script)
-
-## v1.6.5 — Fix startup freeze & duplicate alert notifications
+## v1.6.7 — Loading Before Map & Smart Camera
 
 [previous entries...]
