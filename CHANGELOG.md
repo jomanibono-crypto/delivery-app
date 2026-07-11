@@ -1,14 +1,16 @@
 # Changelog
 
-## v1.6.8 — Fix map loading freeze
+## v1.6.9 — Fix blue map on startup & duplicated bottom navigation
 
 ### Bug Fixes
-- **Fixed loading screen freeze** — When `Geolocator.getLastKnownPosition()` returns null (e.g., first install, no cache), the loading screen stayed stuck forever waiting for Firebase data. Now the app immediately falls back to `Geolocator.getCurrentPosition()` with an 8-second timeout. If that also fails, the map is shown with the Agadir fallback center. The user never sees an infinite spinner.
-- **Reliable map startup** — The loading screen now resolves within 1-2 seconds on most devices instead of potentially hanging indefinitely.
+- **Fixed blue map on startup (Bug #1)** — The FlutterMap widget is now hidden behind a `_mapTilesReady` flag. After `onMapReady` fires, a 1.5-second timer gives tiles time to load before the map is revealed. On tile-failure fallback, the timer shortens to 500ms. The loading screen ("جارٍ تحديد موقعك...") covers the map until tiles are ready. The user never sees a blue ocean, empty tiles, or (0,0) camera.
+- **Fixed duplicated bottom navigation (Bug #2)** — MapScreen had its own Scaffold with bottom nav, and was also embedded inside HomeScreen's Scaffold which also had a bottom nav. This created nested Scaffolds. Added `embedded` parameter to MapScreen — when true, it returns only the map content without a Scaffold wrapper. HomeScreen passes `embedded: true` when showing the map directly.
+- **Removed nested Scaffolds** — MapScreen's standalone mode (still has Scaffold + bottom nav) is used only when navigated to directly. No more double bottom nav, no flicker, no duplicate widgets.
 
 ### Technical
-- `lib/screens/map_screen.dart` — `_initCamera()` now has 3 stages: (1) last known position, (2) direct GPS fetch with timeout, (3) Agadir fallback. Added `dart:async` import for `.timeout()`.
+- `lib/screens/map_screen.dart` — Added `_mapTilesReady`, `_mapRevealTimer`, `widget.embedded`. Build method gated behind both `_initialLocationReady` and `_mapTilesReady`. Standalone path returns Scaffold with AppBar + body + bottom nav. Embedded path returns only `mapContent` (no Scaffold).
+- `lib/screens/home_screen.dart` — Passes `embedded: true` to MapScreen.
 
-## v1.6.7 — Loading Before Map & Smart Camera
+## v1.6.8 — Fix map loading freeze
 
 [previous entries...]
