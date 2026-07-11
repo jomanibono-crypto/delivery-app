@@ -122,10 +122,12 @@ class _SplashScreenState extends State<SplashScreen>
       }
       bool groupExists = false;
       try {
-        groupExists = await _firebaseService.groupExists(savedCode).timeout(
-          const Duration(seconds: 8),
-          onTimeout: () => throw TimeoutException('Group check timed out'),
-        );
+        groupExists = await _firebaseService
+            .groupExists(savedCode)
+            .timeout(
+              const Duration(seconds: 8),
+              onTimeout: () => throw TimeoutException('Group check timed out'),
+            );
       } catch (e) {
         groupExists = false;
       }
@@ -135,7 +137,8 @@ class _SplashScreenState extends State<SplashScreen>
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (_) => HomeScreen(groupCode: savedCode, userName: savedName),
+            builder: (_) =>
+                HomeScreen(groupCode: savedCode, userName: savedName),
           ),
         );
       } else {
@@ -242,11 +245,18 @@ class _SplashScreenState extends State<SplashScreen>
                     padding: const EdgeInsets.all(32),
                     child: Column(
                       children: [
-                        const Icon(Icons.wifi_off_rounded, color: Colors.white70, size: 48),
+                        const Icon(
+                          Icons.wifi_off_rounded,
+                          color: Colors.white70,
+                          size: 48,
+                        ),
                         const SizedBox(height: 16),
                         Text(
                           _errorMessage,
-                          style: const TextStyle(color: Colors.white, fontSize: 15),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                          ),
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 20),

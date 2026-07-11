@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:geolocator/geolocator.dart';
 import '../config/mapbox_config.dart';
 import '../services/firebase_service.dart';
 import '../services/map_cache_service.dart';
@@ -37,7 +38,6 @@ class MapScreenState extends State<MapScreen> {
   final MapController _mapController = MapController();
 
   StreamSubscription<DatabaseEvent>? _membersSubscription;
-  bool _cameraInitialized = false;
   bool _mapReady = false;
 
   // MEMBER SELECTOR: when set, the camera follows this specific member and
@@ -48,17 +48,23 @@ class MapScreenState extends State<MapScreen> {
   // so we don't yank the camera back during follow mode.
   bool _userInteracted = false;
 
+  // ── Initial location state (Feature 1) ──
+  // Set to true once we have a location to show (last known OR GPS).
+  // Until true, only the loading screen is visible.
+  bool _initialLocationReady = false;
+
+  // True once the smart-camera logic has run (Feature 2).
+  bool _firstLocationReceived = false;
+
+  // 2-second timer that triggers the group-fit animation (Feature 2).
+  Timer? _smartCameraTimer;
+
   // AUDIT-3: tile-failure tracking. After a few consecutive tile errors we
   // switch to the OSM fallback URL so the map isn't blank.
   String _tileUrl = MapboxConfig.mapboxTileUrl;
   int _mapboxTileErrors = 0;
   static const int _maxTileErrorsBeforeFallback = 3;
   bool _fellBackToOsm = false;
-
-  // AUDIT-3: timeout safety. If tiles don't render within 10s, show an error
-  // banner instead of an infinite spinner.
-  Timer? _loadingTimeout;
-  bool _loadingTimedOut = false;
 
   // All current members from Firebase: { userId: { name, lat, lng, online, icon } }
   Map<String, Map<String, dynamic>> _members = {};
@@ -85,7 +91,7 @@ class MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
-    _startLoadingTimeout();
+    _initCamera();
     _listenToMembers();
     _loadHistory();
     _historyRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
@@ -96,17 +102,13 @@ class MapScreenState extends State<MapScreen> {
     // Alert notifications are handled globally by AlertNotificationService
   }
 
-  // ──────────────────── Loading timeout (AUDIT-3) ────────────────────
-
-  void _startLoadingTimeout() {
-    _loadingTimeout?.cancel();
-    _loadingTimeout = Timer(const Duration(seconds: 10), () {
-      // Only flag a timeout if the camera still hasn't been placed.
-      if (!_cameraInitialized && mounted) {
-        debugPrint('[Map] Loading timed out after 10s — showing error banner.');
-        setState(() => _loadingTimedOut = true);
-      }
-    });
+  @override
+  void dispose() {
+    _membersSubscription?.cancel();
+    _historyRefreshTimer?.cancel();
+    _smartCameraTimer?.cancel();
+    _mapController.dispose();
+    super.dispose();
   }
 
   // ──────────────────── Tile error fallback (AUDIT-3) ────────────────────
@@ -446,6 +448,68 @@ class MapScreenState extends State<MapScreen> {
     } catch (_) {}
   }
 
+  // ──────────────────── Camera Initialization ────────────────────
+
+  void _initCamera() async {
+    try {
+      final lastPos = await Geolocator.getLastKnownPosition();
+      if (lastPos != null && mounted) {
+        final target = LatLng(lastPos.latitude, lastPos.longitude);
+        _mapController.move(target, 16);
+        if (mounted) {
+          setState(() => _initialLocationReady = true);
+        }
+        _firstLocationReceived = true;
+        debugPrint('[Map] Last known location: $target');
+      }
+    } catch (_) {
+      // No cached location — wait for GPS location from Firebase
+    }
+  }
+
+  // ──────────────────── Loading Screen (Feature 1) ────────────────────
+
+  Widget _buildLocationLoadingScreen() {
+    final theme = Theme.of(context);
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 88,
+            height: 88,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primaryContainer,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Icon(
+              Icons.my_location_rounded,
+              size: 44,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'جارٍ تحديد موقعك...',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: theme.colorScheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.5,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // ──────────────────── Route History ────────────────────
 
   Future<void> _loadHistory() async {
@@ -505,6 +569,70 @@ class MapScreenState extends State<MapScreen> {
             if (!mounted) return;
             setState(() => _members = updated);
 
+            // Feature 1: if no location is ready yet, use the first valid
+            // GPS coordinate from Firebase to reveal the map.
+            if (!_initialLocationReady && _mapReady) {
+              final uid = _firebaseService.userId;
+              final myData = updated[uid];
+              if (myData != null) {
+                final myLat = myData['lat'] as double? ?? 0.0;
+                final myLng = myData['lng'] as double? ?? 0.0;
+                if (myLat != 0.0 && myLng != 0.0) {
+                  _mapController.move(LatLng(myLat, myLng), 16);
+                  if (mounted) setState(() => _initialLocationReady = true);
+                  _firstLocationReceived = true;
+                  debugPrint(
+                    '[Map] GPS location received — map revealed at ($myLat, $myLng)',
+                  );
+                }
+              }
+            }
+
+            // Feature 2: smart camera — only once, after the map is visible
+            // and we have a valid user position.
+            if (!_firstLocationReceived &&
+                !_userInteracted &&
+                _mapReady &&
+                _initialLocationReady) {
+              final uid = _firebaseService.userId;
+              final myData = updated[uid];
+              if (myData != null) {
+                final myLat = myData['lat'] as double? ?? 0.0;
+                final myLng = myData['lng'] as double? ?? 0.0;
+                if (myLat != 0.0 && myLng != 0.0) {
+                  _firstLocationReceived = true;
+                  final myPos = LatLng(myLat, myLng);
+
+                  // Count other members (exclude self and null-coordinate entries)
+                  final others = updated.entries.where((e) {
+                    if (e.key == uid) return false;
+                    final lat = (e.value['lat'] as double?) ?? 0.0;
+                    final lng = (e.value['lng'] as double?) ?? 0.0;
+                    return lat != 0.0 && lng != 0.0;
+                  }).toList();
+
+                  if (others.isEmpty) {
+                    // Case A: alone — center on me at zoom 16
+                    _mapController.move(myPos, 16);
+                    debugPrint(
+                      '[Map] Smart camera — alone, centered at zoom 16',
+                    );
+                  } else {
+                    // Case B: others exist — center on me first, then expand
+                    _mapController.move(myPos, 16);
+                    _smartCameraTimer?.cancel();
+                    _smartCameraTimer = Timer(const Duration(seconds: 2), () {
+                      if (!mounted) return;
+                      _fitCameraToBounds(force: true);
+                      debugPrint(
+                        '[Map] Smart camera — expanded to show ${others.length + 1} members',
+                      );
+                    });
+                  }
+                }
+              }
+            }
+
             // MEMBER SELECTOR: if following a member, re-center on them as they move.
             // Don't override the camera if the user manually panned/zoomed.
             if (_followingMemberId != null && !_userInteracted) {
@@ -537,7 +665,8 @@ class MapScreenState extends State<MapScreen> {
     setState(() {
       _followingMemberId = memberId;
       _userInteracted = false; // reset manual-interaction flag
-      _cameraInitialized = true; // dismiss the initial spinner if still showing
+      _initialLocationReady =
+          true; // dismiss the initial spinner if still showing
     });
     _followMember();
   }
@@ -858,13 +987,8 @@ class MapScreenState extends State<MapScreen> {
       }
     }
 
-    if (!_cameraInitialized || force || _members.length >= 3) {
+    if (_mapReady && (force || _members.length >= 3)) {
       _mapController.move(center, zoom);
-      _loadingTimeout?.cancel();
-      setState(() {
-        _cameraInitialized = true;
-        _loadingTimedOut = false;
-      });
     }
   }
 
@@ -1314,17 +1438,6 @@ class MapScreenState extends State<MapScreen> {
     return markers;
   }
 
-  // ──────────────────── Lifecycle ────────────────────
-
-  @override
-  void dispose() {
-    _loadingTimeout?.cancel();
-    _membersSubscription?.cancel();
-    _historyRefreshTimer?.cancel();
-    _mapController.dispose();
-    super.dispose();
-  }
-
   // ──────────────────── Build ────────────────────
 
   @override
@@ -1379,7 +1492,9 @@ class MapScreenState extends State<MapScreen> {
           ),
         ],
       ),
-      body: _members.isEmpty
+      body: !_initialLocationReady
+          ? _buildLocationLoadingScreen()
+          : _members.isEmpty
           ? Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -1486,91 +1601,8 @@ class MapScreenState extends State<MapScreen> {
                   ),
                 ),
 
-                // Initial-loading spinner overlay.
-                if (!_cameraInitialized && !_loadingTimedOut)
-                  Positioned.fill(
-                    child: Container(
-                      color: Colors.white.withValues(alpha: 0.7),
-                      child: Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            CircularProgressIndicator(
-                              color: theme.colorScheme.primary,
-                            ),
-                            const SizedBox(height: 14),
-                            Text(
-                              'جاري تحميل الخريطة...',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: theme.colorScheme.primary,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-
-                // Timeout error banner.
-                if (_loadingTimedOut)
-                  Positioned.fill(
-                    child: Container(
-                      color: theme.colorScheme.surface,
-                      child: Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(32),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: 72,
-                                height: 72,
-                                decoration: BoxDecoration(
-                                  color:
-                                      theme.colorScheme.surfaceContainerHighest,
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: Icon(
-                                  Icons.wifi_off_rounded,
-                                  size: 36,
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                              const SizedBox(height: 20),
-                              Text(
-                                'تعذّر تحميل الخريطة، تحقق من الإنترنت',
-                                textAlign: TextAlign.center,
-                                style: theme.textTheme.bodyLarge?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                              const SizedBox(height: 20),
-                              FilledButton.icon(
-                                onPressed: () {
-                                  setState(() {
-                                    _loadingTimedOut = false;
-                                    _cameraInitialized = false;
-                                    _fellBackToOsm = true;
-                                    _tileUrl = MapboxConfig.osmFallbackTileUrl;
-                                  });
-                                  _startLoadingTimeout();
-                                },
-                                icon: const Icon(
-                                  Icons.refresh_rounded,
-                                  size: 20,
-                                ),
-                                label: const Text('إعادة المحاولة'),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-
                 // OSM fallback indicator.
-                if (_fellBackToOsm && _cameraInitialized)
+                if (_fellBackToOsm && _mapReady)
                   Positioned(
                     top: 8,
                     left: 8,

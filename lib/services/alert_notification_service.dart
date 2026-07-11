@@ -36,30 +36,34 @@ class AlertNotificationService {
         .limitToLast(50)
         .onValue
         .listen((event) {
-      final snap = event.snapshot;
-      if (!snap.exists) return;
-      final data = snap.value as Map<dynamic, dynamic>? ?? {};
-      final userId = FirebaseService().userId;
-      for (final entry in data.entries) {
-        if (entry.value is! Map) continue;
-        final map = entry.value as Map<dynamic, dynamic>;
-        final alertId = entry.key as String;
-        // Skip if already notified this session
-        if (_notifiedAlertIds.contains(alertId)) continue;
-        // Skip alerts created by the current user
-        final alertUserId = map['userId'] as String? ?? '';
-        if (alertUserId == userId) continue;
-        // Skip non-alert types (notes)
-        final typeKey = map['type'] as String? ?? '';
-        final alertType = AlertType.values.where((t) => t.key == typeKey).firstOrNull;
-        if (alertType == null || !alertType.isAlert) continue;
-        // Mark as notified and show notification
-        _notifiedAlertIds.add(alertId);
-        _notifService.showAlertNotification(
-          AlertData.fromMap(map, alertId, groupCode),
-        ).catchError((_) {});
-      }
-    });
+          final snap = event.snapshot;
+          if (!snap.exists) return;
+          final data = snap.value as Map<dynamic, dynamic>? ?? {};
+          final userId = FirebaseService().userId;
+          for (final entry in data.entries) {
+            if (entry.value is! Map) continue;
+            final map = entry.value as Map<dynamic, dynamic>;
+            final alertId = entry.key as String;
+            // Skip if already notified this session
+            if (_notifiedAlertIds.contains(alertId)) continue;
+            // Skip alerts created by the current user
+            final alertUserId = map['userId'] as String? ?? '';
+            if (alertUserId == userId) continue;
+            // Skip non-alert types (notes)
+            final typeKey = map['type'] as String? ?? '';
+            final alertType = AlertType.values
+                .where((t) => t.key == typeKey)
+                .firstOrNull;
+            if (alertType == null || !alertType.isAlert) continue;
+            // Mark as notified and show notification
+            _notifiedAlertIds.add(alertId);
+            _notifService
+                .showAlertNotification(
+                  AlertData.fromMap(map, alertId, groupCode),
+                )
+                .catchError((_) {});
+          }
+        });
     debugPrint('[AlertNotif] Started listening for group $groupCode');
   }
 

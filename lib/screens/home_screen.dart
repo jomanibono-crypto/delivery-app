@@ -491,11 +491,14 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _alertCache = alerts.where((a) => a.type.isAlert).toList();
       if (!_isRemovingAlerts) {
         _isRemovingAlerts = true;
-        _alertService.removeVotedGoneAlerts(widget.groupCode).then((_) {
-          _isRemovingAlerts = false;
-        }).catchError((_) {
-          _isRemovingAlerts = false;
-        });
+        _alertService
+            .removeVotedGoneAlerts(widget.groupCode)
+            .then((_) {
+              _isRemovingAlerts = false;
+            })
+            .catchError((_) {
+              _isRemovingAlerts = false;
+            });
       }
     });
   }
@@ -659,43 +662,40 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ],
       ),
       body: _showMapDirectly
-          ? MapScreen(
-              groupCode: widget.groupCode,
-              userName: widget.userName,
-            )
+          ? MapScreen(groupCode: widget.groupCode, userName: widget.userName)
           : _errorMessage.isNotEmpty
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(32),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 80,
-                          height: 80,
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.errorContainer,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Icon(
-                            Icons.gps_off_rounded,
-                            size: 40,
-                            color: theme.colorScheme.error,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        Text(
-                          _errorMessage,
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                            color: theme.colorScheme.error,
-                          ),
-                        ),
-                      ],
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.errorContainer,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Icon(
+                        Icons.gps_off_rounded,
+                        size: 40,
+                        color: theme.colorScheme.error,
+                      ),
                     ),
-                  ),
-                )
-              : const SizedBox.shrink(),
+                    const SizedBox(height: 20),
+                    Text(
+                      _errorMessage,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: theme.colorScheme.error,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : const SizedBox.shrink(),
       bottomNavigationBar: _buildBottomNav(),
     );
   }

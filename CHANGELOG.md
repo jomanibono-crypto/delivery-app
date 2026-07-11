@@ -1,22 +1,18 @@
 # Changelog
 
-## v1.6.3 — Crash Fix & Navigation Improvement
+## v1.6.5 — Fix startup freeze & duplicate alert notifications
 
 ### Bug Fixes
-- **Fixed crash from infinite recursion** — The `removeVotedGoneAlerts` method in `alert_service.dart` created a read-delete-trigger loop with the Firebase `onValue` stream, causing rapid resource exhaustion and app closure after ~5 seconds. Added a re-entry guard flag to prevent recursive calls.
+- **Fixed startup freeze** — Added a 20-second timeout to splash screen initialization. If Firebase auth, update check, or session resume hangs, the user now sees an error message with a Retry button. The app will never get stuck on an infinite loading spinner.
+- **Fixed duplicate alert notifications** — Alert notifications are now handled globally by `AlertNotificationService` (lives for the app's lifetime, not tied to any screen). A per-session `Set<String>` tracks already-notified alert IDs. Notifications appear immediately when a new alert is created on any screen (Map, Chat, Settings, Home, etc.). Navigating away and back never replays old notifications.
 
 ### Improvements
-- **Direct map navigation** — App now opens directly to the Map Screen after initialization, removing the intermediate "Tracking active" placeholder screen.
-- **Faster startup** — No more waiting on the "Tracking active" screen; services initialize in background while the map loads.
-- **Removed dead UI** — "Tracking active ✓", "Your location is shared with the group", "Tap the map to view members", and "Open map" button have been removed.
-- **Improved startup stability** — Re-entrant guard prevents alert cleanup from overwhelming the Firebase listener.
+- **Global alert listener** — `AlertNotificationService` starts in `HomeScreen._startCoreServices()` and listens to Firebase alerts regardless of which screen is visible.
+- **Removed duplicate MapScreen logic** — `_showAlertNotification()` and `_seenAlertIds` removed from `map_screen.dart`. The map only renders markers; all notification decisions are centralized.
+- **Startup reliability** — Added `TimeoutException` handling to every Firebase call in `_initApp()`. The animation controller is properly disposed on retry.
 
 ### Technical
-- `lib/screens/home_screen.dart` — Added `_showMapDirectly` flag; `build()` renders `MapScreen` inline after init; removed `MuteBanner` import; added `_isRemovingAlerts` guard.
-- `scripts/publish.dart` — Fixed `_getFirebaseToken()` to fall back to Firebase CLI OAuth token when the API key has Android app restrictions.
-
-## v1.6.2 — (skipped, version consumed by publish script)
-
-## v1.6.1 — Community Validation, Theme Customization, Voice Alerts & More
-
-[Previous changelog entries...]
+- `lib/services/alert_notification_service.dart` — New file. Singleton service with `startListening(groupCode)`, `stopListening()`, `clearCache()`. Uses `orderByChild('timestamp').limitToLast(50)` for efficient alert polling.
+- `lib/screens/splash_screen.dart` — Added 20s `_initTimeout`, error state with retry button, timeouts on Firebase calls.
+- `lib/screens/home_screen.dart` — Added `AlertNotificationService().startListening(widget.groupCode)` in `_startCoreServices()`.
+- `lib/screens/map_screen.dart` — Removed `_showAlertNotification()`, `_seenAlertIds`, `_listenToAlerts()` notification logic.
