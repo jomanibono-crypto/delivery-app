@@ -42,6 +42,7 @@ class _MapScreenState extends State<MapScreen> {
 
   // ── Subscriptions ──
   StreamSubscription<DatabaseEvent>? _membersSub;
+  StreamSubscription<List<AlertData>>? _alertsSub;
   Timer? _historyTimer;
   Timer? _smartCameraDelay;
 
@@ -81,6 +82,7 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void dispose() {
     _membersSub?.cancel();
+    _alertsSub?.cancel();
     _historyTimer?.cancel();
     _smartCameraDelay?.cancel();
     _mapCtrl.dispose();
@@ -92,32 +94,39 @@ class _MapScreenState extends State<MapScreen> {
   // ═══════════════════════════════════════════════
 
   Future<void> _initSequence() async {
-    // 1. Resolve location
-    final loc = await _locationSvc.resolve();
+    try {
+      // 1. Resolve location
+      final loc = await _locationSvc.resolve();
 
-    // 2. Pre-position the camera (Agadir fallback if no location)
-    final center = loc ?? MapCameraService.defaultCenter;
-    final zoom = loc != null ? 16.0 : 13.0;
-    if (mounted) _mapCtrl.move(center, zoom);
+      // 2. Pre-position the camera (Agadir fallback if no location)
+      final center = loc ?? MapCameraService.defaultCenter;
+      final zoom = loc != null ? 16.0 : 13.0;
+      if (mounted) _mapCtrl.move(center, zoom);
 
-    // 3. Load route history (non-blocking)
-    _loadRoute();
+      // 3. Load route history (non-blocking)
+      _loadRoute();
 
-    // 4. Schedule periodic route refresh
-    _historyTimer = Timer.periodic(
-      const Duration(seconds: 30),
-      (_) => _loadRoute(),
-    );
+      // 4. Schedule periodic route refresh
+      _historyTimer = Timer.periodic(
+        const Duration(seconds: 30),
+        (_) => _loadRoute(),
+      );
 
-    // 5. Start real-time member + alert listeners
-    _listenMembers();
-    _listenAlerts();
-    _runCleanup();
+      // 5. Start real-time member + alert listeners
+      _listenMembers();
+      _listenAlerts();
+      _runCleanup();
 
-    // 6. Mark ready — triggers the tile-reveal timer in onMapReady
-    if (mounted) setState(() => _ready = true);
+      // 6. Mark ready — triggers the tile-reveal timer in onMapReady
+      if (mounted) setState(() => _ready = true);
 
-    debugPrint('[Map] Init complete — ready=$_ready, location=$center');
+      debugPrint('[Map] Init complete — ready=$_ready, location=$center');
+    } catch (e) {
+      debugPrint('[Map] Init failed: $e');
+      if (mounted) {
+        setState(() => _error = 'تعذّر تحميل الخريطة: $e');
+      }
+    }
   }
 
   // ═══════════════════════════════════════════════
@@ -153,17 +162,18 @@ class _MapScreenState extends State<MapScreen> {
         _runSmartCamera();
       }
 
-      // Follow member or fit bounds
+      // Follow member or fit bounds (but not if user manually panned)
       if (_followingMemberId != null && !_userInteracted) {
         _followMember();
-      } else if (_followingMemberId == null && _tilesRevealed) {
+      } else if (_followingMemberId == null && _tilesRevealed && !_userInteracted && _members.length >= 3) {
+        // Only auto-fit when there are enough members to make it useful
         _fitBounds();
       }
     }, onError: (_) {});
   }
 
   void _listenAlerts() {
-    _alertSvc.watchAlerts(widget.groupCode).listen((alerts) {
+    _alertsSub = _alertSvc.watchAlerts(widget.groupCode).listen((alerts) {
       if (!mounted) return;
       setState(() => _alerts = alerts.where((a) => !a.resolved).toList());
     });
@@ -827,10 +837,11 @@ class _MapScreenState extends State<MapScreen> {
     final theme = Theme.of(context);
 
     // Before init is complete, show loading
-    if (!_ready)
+    if (!_ready) {
       return widget.embedded
           ? const MapLoadingView()
           : Scaffold(appBar: _buildAppBar(), body: const MapLoadingView());
+    }
 
     // Error state
     if (_error != null) {
@@ -856,12 +867,13 @@ class _MapScreenState extends State<MapScreen> {
             initialZoom: 13,
             minZoom: 3,
             maxZoom: 18,
-            onMapReady: () {
-              setState(() => _mapReady = true);
-              Future.delayed(const Duration(milliseconds: 1500), () {
-                if (mounted) setState(() {});
-              });
-            },
+          onMapReady: () {
+            setState(() => _mapReady = true);
+            // Reveal tiles after delay, even before member data arrives
+            Future.delayed(const Duration(milliseconds: 1500), () {
+              if (mounted) setState(() {});
+            });
+          },
             onPositionChanged: (_, hasGesture) {
               if (hasGesture) _userInteracted = true;
             },
@@ -937,8 +949,8 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ),
           ),
-        // Tile-loading shade
-        if (_ready && !_tilesRevealed && !_mapReady) const MapLoadingView(),
+        // Tile-loading shade: hide after tiles ready
+        if (_ready && !_mapReady) const MapLoadingView(),
       ],
     );
 
@@ -992,24 +1004,27 @@ class _MapScreenState extends State<MapScreen> {
         ),
       ],
       onDestinationSelected: (i) {
-        if (i == 1)
+        if (i == 1) {
           _navigate(
             ChatScreen(groupCode: widget.groupCode, userName: widget.userName),
           );
-        if (i == 2)
+        }
+        if (i == 2) {
           _navigate(
             BlacklistScreen(
               groupCode: widget.groupCode,
               userName: widget.userName,
             ),
           );
-        if (i == 3)
+        }
+        if (i == 3) {
           _navigate(
             SettingsScreen(
               groupCode: widget.groupCode,
               userName: widget.userName,
             ),
           );
+        }
       },
     );
   }

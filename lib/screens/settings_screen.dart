@@ -19,6 +19,7 @@ import '../widgets/system_alert_card.dart';
 import '../widgets/proximity_alert_settings.dart';
 import '../widgets/appearance_settings.dart';
 import '../services/theme_service.dart';
+import 'health_dashboard.dart';
 import 'group_screen.dart';
 import 'map_screen.dart';
 import 'chat_screen.dart';
@@ -205,6 +206,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
             appSettings: _appSettings,
             themeService: ThemeService(),
             onChanged: () {},
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const HealthDashboard(),
+                ),
+              ),
+              icon: const Icon(Icons.monitor_heart_rounded, size: 20),
+              label: const Text('لوحة الصحة'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
           ),
           const SizedBox(height: 24),
           SectionHeader(title: 'تنبيهات النقاط'),
