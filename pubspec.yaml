@@ -1,7 +1,7 @@
 name: glovo_mate
 description: "GlovoMate – Track delivery drivers in real-time."
 publish_to: 'none'
-version: 1.6.5+24
+version: 1.6.7+26
 
 environment:
   sdk: ^3.12.2
