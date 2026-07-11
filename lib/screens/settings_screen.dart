@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../services/firebase_service.dart';
@@ -8,6 +9,7 @@ import '../services/local_storage_service.dart';
 import '../services/app_settings.dart';
 import '../services/permission_service.dart';
 import '../services/update_service.dart';
+import '../services/notification_service.dart';
 import '../widgets/update_dialog.dart';
 import '../widgets/section_header.dart';
 import '../widgets/info_row.dart';
@@ -72,6 +74,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _checkSystemAlert() async {
     final granted = await _permissionService.isSystemAlertWindowGranted();
     if (mounted) setState(() => _systemAlertGranted = granted);
+  }
+
+  Future<void> _sendTestNotification() async {
+    final notifService = NotificationService();
+    await notifService.initialize();
+    await notifService.sendTestNotification(
+      playSound: _appSettings.alertSoundEnabled,
+      enableVibration: _appSettings.alertVibrationEnabled,
+      enableVoice: _appSettings.alertVoiceEnabled,
+    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('تم إرسال الإشعار الاختباري'),
+          backgroundColor: const Color(0xFF2E7D32),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  Future<void> _testVibration() async {
+    HapticFeedback.heavyImpact();
+    await Future.delayed(const Duration(milliseconds: 200));
+    HapticFeedback.heavyImpact();
+    await Future.delayed(const Duration(milliseconds: 200));
+    HapticFeedback.mediumImpact();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('تم اختبار الاهتزاز'),
+          backgroundColor: const Color(0xFF2E7D32),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   Future<void> _loadDashboard() async {
@@ -192,6 +230,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onPressed: () => _openAppNotificationSettings(context),
               icon: const Icon(Icons.tune_rounded, size: 20),
               label: const Text('إعدادات الإشعارات'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => _sendTestNotification(),
+              icon: const Icon(Icons.notifications_active_rounded, size: 20),
+              label: const Text('إرسال إشعار اختباري'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => _testVibration(),
+              icon: const Icon(Icons.vibration_rounded, size: 20),
+              label: const Text('اختبار الاهتزاز'),
               style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(

@@ -13,6 +13,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'firebase_options.dart';
 import 'screens/splash_screen.dart';
 import 'services/firebase_service.dart';
@@ -20,6 +21,10 @@ import 'services/alert_service.dart';
 import 'services/proximity_service.dart';
 import 'services/app_settings.dart';
 import 'services/theme_service.dart';
+import 'services/voice_service.dart';
+import 'services/map_cache_service.dart';
+import 'services/map_camera_service.dart';
+import 'config/mapbox_config.dart';
 import 'utils/firebase_path.dart';
 
 /// ID of the notification channel used by the foreground location service.
@@ -78,6 +83,20 @@ Future<void> main() async {
   final themeService = ThemeService();
   await themeService.load();
 
+  // Preload services in parallel — non-blocking, runs alongside splash
+  unawaited(Future.wait([
+    // Pre-warm map tile cache around Agadir so tiles load faster
+    MapCacheService.preWarm(MapCameraService.defaultCenter),
+    // Pre-initialize TTS so voice alerts are ready immediately
+    VoiceService().initialize(),
+    // Preload app settings
+    AppSettings().load(),
+    // Preload app settings extended
+    AppSettings().loadExtended(),
+    // Pre-cache map marker assets (icon fonts, images)
+    _preloadAssets(),
+  ]));
+
   runApp(const GlovoMateApp());
 }
 
@@ -97,6 +116,23 @@ Future<void> _createLocationNotificationChannel() async {
         AndroidFlutterLocalNotificationsPlugin
       >()
       ?.createNotificationChannel(channel);
+}
+
+/// Preload common assets required by the map and UI.
+/// This runs asynchronously before the first frame, so visual assets
+/// are cached by the time the user reaches the home screen.
+Future<void> _preloadAssets() async {
+  try {
+    // Cache the Mapbox tile URL (triggers DNS resolution + TLS handshake)
+    await DefaultCacheManager().getSingleFile(MapboxConfig.mapboxTileUrl
+        .replaceAll('{z}', '10')
+        .replaceAll('{x}', '512')
+        .replaceAll('{y}', '341'));
+    debugPrint('[Startup] Tile preload completed.');
+  } catch (_) {
+    // Non-critical — skip silently
+  }
+  debugPrint('[Startup] Asset preload completed.');
 }
 
 /// Configure the background service before runApp.

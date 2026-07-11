@@ -1,8 +1,10 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'local_storage_service.dart';
 import 'alert_service.dart';
+import 'voice_service.dart';
 
 /// Handles local notifications for proximity alerts.
 ///
@@ -150,6 +152,109 @@ class NotificationService {
     await _recreateChannel(bumpVersion: true);
     // Preview: show a test notification so the user hears it immediately.
     await showProximityNotification('معاينة الصوت', 100);
+  }
+
+  /// Play a brief preview of the given sound without bumping the channel
+  /// version or changing the saved preference.
+  Future<void> previewSound(String soundKey) async {
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    if (android == null) return;
+
+    final sound = _resolveSound(soundKey);
+    final playSound = soundKey != 'silent';
+
+    const previewId = 'sound_preview_channel';
+    try {
+      await android.deleteNotificationChannel(previewId);
+    } catch (_) {}
+
+    final channel = AndroidNotificationChannel(
+      previewId,
+      'Sound Preview',
+      description: 'Temporary channel for sound preview',
+      importance: Importance.max,
+      playSound: playSound,
+      sound: sound,
+      enableVibration: true,
+      vibrationPattern: Int64List.fromList([0, 200, 100, 200]),
+    );
+    await android.createNotificationChannel(channel);
+
+    await _plugin.show(
+      999999,
+      'معاينة الصوت',
+      '',
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          previewId,
+          'Sound Preview',
+          importance: Importance.max,
+          priority: Priority.max,
+          playSound: playSound,
+          sound: sound,
+          enableVibration: true,
+          autoCancel: true,
+        ),
+      ),
+    );
+
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      _plugin.cancel(999999);
+    });
+  }
+
+  /// Send a test notification using current settings (sound, vibration, TTS).
+  Future<void> sendTestNotification({
+    bool playSound = true,
+    bool enableVibration = true,
+    bool enableVoice = false,
+  }) async {
+    final soundKey = await _storage.getNotifSound();
+    final shouldPlaySound = playSound && soundKey != 'silent';
+
+    final vibePattern = enableVibration
+        ? Int64List.fromList([0, 300, 200, 300, 200, 300])
+        : null;
+
+    await _plugin.show(
+      888888,
+      '🔔 اختبار الإشعار',
+      'هذا إشعار اختباري — تم إرساله من الإعدادات',
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          _activeChannelId,
+          'Proximity Alerts',
+          channelDescription: 'Notifications when group members are nearby',
+          importance: Importance.max,
+          priority: Priority.max,
+          playSound: shouldPlaySound,
+          enableVibration: enableVibration,
+          vibrationPattern: vibePattern,
+          fullScreenIntent: false,
+          visibility: NotificationVisibility.public,
+          autoCancel: true,
+          category: AndroidNotificationCategory.alarm,
+        ),
+        iOS: const DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+        ),
+      ),
+    );
+
+    if (enableVibration) {
+      HapticFeedback.heavyImpact();
+    }
+
+    if (enableVoice) {
+      try {
+        VoiceService().speak('هذا اختبار للإشعارات');
+      } catch (_) {}
+    }
   }
 
   /// Request notification permissions (needed for Android 13+).

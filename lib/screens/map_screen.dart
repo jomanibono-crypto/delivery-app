@@ -1106,6 +1106,45 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ),
           ),
+        // Loading overlay — shown until tiles are revealed (first smart camera)
+        if (!_tilesRevealed)
+          Positioned.fill(
+            child: Container(
+              color: Colors.black38,
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      width: 32,
+                      height: 32,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 3,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      'جارٍ تحضير الخريطة...',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'يتم تحميل موقعك',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
       ],
     );
 

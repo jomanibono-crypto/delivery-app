@@ -4,7 +4,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../services/firebase_service.dart';
 import '../services/local_storage_service.dart';
 import '../services/update_service.dart';
-import '../widgets/update_dialog.dart';
 import 'group_screen.dart';
 import 'home_screen.dart';
 
@@ -28,6 +27,10 @@ class _SplashScreenState extends State<SplashScreen>
   bool _hasError = false;
   String _errorMessage = '';
   Timer? _initTimeout;
+
+  double _downloadProgress = 0.0;
+  bool _isDownloadingUpdate = false;
+  bool _downloadComplete = false;
 
   @override
   void initState() {
@@ -99,11 +102,41 @@ class _SplashScreenState extends State<SplashScreen>
       );
       if (!mounted) return;
       if (updateInfo.updateAvailable) {
-        _showUpdateDialog(updateInfo);
+        setState(() => _isDownloadingUpdate = true);
+        await _downloadUpdate(updateInfo);
         return;
       }
     } catch (_) {
       // Silently skip update check on failure — not critical for startup
+    }
+  }
+
+  Future<void> _downloadUpdate(UpdateInfo info) async {
+    try {
+      final filePath = await _updateService.downloadApk(
+        url: info.downloadUrl!,
+        expectedHash: info.apkHash,
+        onProgress: (p) {
+          if (mounted) {
+            setState(() => _downloadProgress = p);
+          }
+        },
+      );
+      if (!mounted) return;
+      setState(() {
+        _downloadComplete = true;
+        _isDownloadingUpdate = false;
+      });
+      // Auto-install
+      await _updateService.installApk(filePath);
+    } catch (e) {
+      debugPrint('[Splash] Auto-update download failed: $e');
+      if (mounted) {
+        setState(() {
+          _isDownloadingUpdate = false;
+          _downloadComplete = false;
+        });
+      }
     }
   }
 
@@ -153,18 +186,6 @@ class _SplashScreenState extends State<SplashScreen>
         _errorMessage = 'تعذّر تحميل الجلسة. حاول مرة أخرى.';
       });
     }
-  }
-
-  void _showUpdateDialog(UpdateInfo info) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => UpdateDialog(
-        info: info,
-        updateService: _updateService,
-        onDismiss: _tryResumeSession,
-      ),
-    );
   }
 
   void _navigateToGroupScreen() {
@@ -272,6 +293,65 @@ class _SplashScreenState extends State<SplashScreen>
                           style: FilledButton.styleFrom(
                             backgroundColor: Colors.white,
                             foregroundColor: widget.accentColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else if (_isDownloadingUpdate)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 48),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: LinearProgressIndicator(
+                            value: _downloadProgress,
+                            minHeight: 4,
+                            backgroundColor: Colors.white24,
+                            valueColor: const AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'جاري تحميل التحديث... ${(_downloadProgress * 100).toStringAsFixed(0)}%',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else if (_downloadComplete)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 48),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.check_circle_outline_rounded,
+                          color: Colors.white,
+                          size: 28,
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'تم تحميل التحديث',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 13,
                           ),
                         ),
                       ],
