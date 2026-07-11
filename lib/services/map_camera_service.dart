@@ -5,7 +5,7 @@ import 'package:latlong2/latlong.dart';
 /// and the smart-camera behavior (alone vs group).
 class MapCameraService {
   /// Default fallback center (Agadir, Morocco).
-  static const LatLng defaultCenter = LatLng(33.97, -6.85);
+  static const LatLng defaultCenter = LatLng(30.4278, -9.5981);
   static const double defaultZoom = 13.0;
   static const double userZoom = 16.0;
 

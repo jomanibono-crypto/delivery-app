@@ -39,7 +39,7 @@ class MapLocationService {
           accuracy: LocationAccuracy.high,
           intervalDuration: const Duration(seconds: 1),
         ),
-      ).timeout(const Duration(seconds: 8));
+      ).timeout(const Duration(seconds: 4));
       _cachedPosition = LatLng(pos.latitude, pos.longitude);
       debugPrint('[LocationSvc] Current GPS: $_cachedPosition');
       return _cachedPosition;
@@ -52,10 +52,10 @@ class MapLocationService {
   }
 
   /// Full location resolution with fallback chain:
-  /// current GPS → last known → null (caller should use default)
+  /// last known (instant) → GPS (4s timeout) → null (caller uses Agadir)
   Future<LatLng?> resolve() async {
-    final gps = await getCurrentLocation();
-    if (gps != null) return gps;
-    return getLastKnownLocation();
+    final lastKnown = await getLastKnownLocation();
+    if (lastKnown != null) return lastKnown;
+    return getCurrentLocation();
   }
 }
