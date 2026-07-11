@@ -9,8 +9,8 @@ import '../services/map_cache_service.dart';
 import '../services/alert_service.dart';
 import '../services/map_location_service.dart';
 import '../services/map_camera_service.dart';
+import '../services/haversine.dart';
 import '../widgets/vote_widget.dart';
-import '../widgets/map_loading_view.dart';
 import '../widgets/map_error_view.dart';
 import '../utils/relative_time.dart';
 import 'settings_screen.dart';
@@ -82,6 +82,8 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
+    // Show the map immediately — initialization runs in background
+    _ready = true;
     // Safety timeout: force _mapReady after 5s so loading shade clears
     _mapReadySafetyTimer = Timer(const Duration(seconds: 5), () {
       if (mounted && !_mapReady) {
@@ -181,6 +183,7 @@ class _MapScreenState extends State<MapScreen> {
           'icon': (value['icon'] as String?) ?? '',
           'speed': (value['speed'] as num?)?.toDouble() ?? 0.0,
           'last_moved_at': (value['last_moved_at'] as num?)?.toInt() ?? 0,
+          'timestamp': (value['timestamp'] as num?)?.toInt() ?? 0,
         };
       });
 
@@ -785,37 +788,150 @@ class _MapScreenState extends State<MapScreen> {
     final m = _members[key];
     if (m == null) return;
     final theme = Theme.of(context);
+    final uid = _fb.userId;
+    final isMe = key == uid;
+    final name = m['name'] as String? ?? '';
+    final icon = m['icon'] as String? ?? '';
+    final online = m['online'] as bool? ?? false;
+    final lat = m['lat'] as double? ?? 0.0;
+    final lng = m['lng'] as double? ?? 0.0;
+    final speedMs = m['speed'] as double? ?? 0.0;
+    final speedKmh = speedMs * 3.6;
+    final lastMoved = m['last_moved_at'] as int? ?? 0;
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    // Stop duration
+    String stopDuration = '';
+    if (lastMoved > 0 && speedMs < 1) {
+      final stoppedSec = (now - lastMoved) ~/ 1000;
+      if (stoppedSec < 60) {
+        stopDuration = 'منذ أقل من دقيقة';
+      } else if (stoppedSec < 3600) {
+        stopDuration = 'منذ ${stoppedSec ~/ 60} دقيقة';
+      } else if (stoppedSec < 86400) {
+        stopDuration = 'منذ ${stoppedSec ~/ 3600} ساعة';
+      } else {
+        stopDuration = 'منذ ${stoppedSec ~/ 86400} يوم';
+      }
+    }
+
+    // Distance from me
+    String distanceStr = '';
+    final myData = _members[uid];
+    if (myData != null && !isMe) {
+      final myLat = myData['lat'] as double? ?? 0.0;
+      final myLng = myData['lng'] as double? ?? 0.0;
+      if (myLat != 0.0 && myLng != 0.0 && lat != 0.0 && lng != 0.0) {
+        final dist = calculateDistance(myLat, myLng, lat, lng);
+        distanceStr = dist < 1000
+            ? '${dist.toStringAsFixed(0)} متر'
+            : '${(dist / 1000).toStringAsFixed(1)} كم';
+      }
+    }
+
+    // Battery (from Firebase data if available)
+    final battery = m['battery'] as int?;
+    final batteryStr = battery != null ? '🔋 $battery%' : 'البطارية غير متوفرة';
+
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (_) => Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircleAvatar(
-              radius: 30,
-              backgroundColor: _colors[0],
-              child: (m['icon'] as String).isNotEmpty
-                  ? Text(
-                      m['icon'] as String,
-                      style: const TextStyle(fontSize: 24),
-                    )
-                  : const Icon(Icons.person, color: Colors.white, size: 24),
-            ),
-            const SizedBox(height: 12),
-            Text(m['name'] as String, style: theme.textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Text(
-              'آخر تحديث: ${relativeTime(m['last_moved_at'] as int? ?? 0)}',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.55,
+        minChildSize: 0.3,
+        maxChildSize: 0.85,
+        expand: false,
+        builder: (_, scrollCtrl) => SingleChildScrollView(
+          controller: scrollCtrl,
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Drag handle
+              Container(width: 40, height: 4,
+                decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
+              const SizedBox(height: 20),
+              // Avatar + Name
+              CircleAvatar(
+                radius: 36,
+                backgroundColor: theme.colorScheme.primaryContainer,
+                child: icon.isNotEmpty
+                    ? Text(icon, style: const TextStyle(fontSize: 32))
+                    : Icon(Icons.person_rounded, color: theme.colorScheme.primary, size: 32),
               ),
-            ),
-          ],
+              const SizedBox(height: 12),
+              Text(name, style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Container(
+                  width: 8, height: 8,
+                  decoration: BoxDecoration(color: online ? Colors.green : Colors.grey, shape: BoxShape.circle),
+                ),
+                const SizedBox(width: 6),
+                Text(online ? 'متصل' : 'غير متصل',
+                  style: TextStyle(color: online ? Colors.green : Colors.grey, fontWeight: FontWeight.w600)),
+              ]),
+              const SizedBox(height: 24),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+
+              // Info rows
+              _infoRow(theme, Icons.speed_rounded, 'السرعة', speedKmh > 0 ? '${speedKmh.toStringAsFixed(1)} كم/ساعة' : '0 كم/ساعة'),
+              if (stopDuration.isNotEmpty)
+                _infoRow(theme, Icons.timer_rounded, 'متوقف', stopDuration),
+              _infoRow(theme, Icons.location_on_rounded, 'الإحداثيات', '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}'),
+              if (distanceStr.isNotEmpty)
+                _infoRow(theme, Icons.straighten_rounded, 'المسافة مني', distanceStr),
+              _infoRow(theme, Icons.battery_std_rounded, 'البطارية', batteryStr),
+              _infoRow(theme, Icons.update_rounded, 'آخر تحديث', relativeTime(m['timestamp'] as int? ?? lastMoved)),
+              if (lastMoved > 0)
+                _infoRow(theme, Icons.person_pin_rounded, 'آخر نشاط', relativeTime(lastMoved)),
+
+              const SizedBox(height: 24),
+
+              // Follow button
+              if (!isMe)
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _selectMember(key);
+                    },
+                    icon: const Icon(Icons.my_location_rounded, size: 20),
+                    label: Text(_followingMemberId == key ? 'إلغاء التتبع' : 'تتبع العضو'),
+                  ),
+                ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('إغلاق'),
+                ),
+              ),
+            ],
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _infoRow(ThemeData theme, IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 12),
+          Text(label, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+          const Spacer(),
+          Text(value, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600), textAlign: TextAlign.end),
+        ],
       ),
     );
   }
@@ -865,17 +981,6 @@ class _MapScreenState extends State<MapScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
-    // Before init is complete, show loading
-    if (!_ready) {
-      return widget.embedded
-          ? const MapLoadingView()
-          : Scaffold(
-              appBar: _buildAppBar(),
-              body: const MapLoadingView(),
-              bottomNavigationBar: _buildBottomNav(),
-            );
-    }
 
     // Error state
     if (_error != null) {
@@ -986,8 +1091,6 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ),
           ),
-        // Tile-loading shade: hide after tiles ready
-        if (_ready && !_mapReady) const MapLoadingView(),
       ],
     );
 
