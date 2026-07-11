@@ -16,6 +16,7 @@ import '../services/haversine.dart';
 import '../services/map_cache_service.dart';
 import '../services/alert_service.dart';
 import '../services/proximity_service.dart';
+import '../services/alert_notification_service.dart';
 import 'map_screen.dart';
 import 'settings_screen.dart';
 import 'chat_screen.dart';
@@ -228,6 +229,9 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } catch (e) {
       debugPrint('[Home] Notification init failed: $e');
     }
+
+    // ── Start global alert notification listener ──
+    AlertNotificationService().startListening(widget.groupCode);
 
     if (!mounted) return;
 

@@ -7,7 +7,6 @@ import '../config/mapbox_config.dart';
 import '../services/firebase_service.dart';
 import '../services/map_cache_service.dart';
 import '../services/alert_service.dart';
-import '../services/notification_service.dart';
 import '../widgets/vote_widget.dart';
 import '../utils/relative_time.dart';
 import 'settings_screen.dart';
@@ -82,7 +81,6 @@ class MapScreenState extends State<MapScreen> {
 
   final AlertService _alertService = AlertService();
   List<AlertData> _alerts = [];
-  Set<String> _seenAlertIds = {};
 
   @override
   void initState() {
@@ -95,6 +93,7 @@ class MapScreenState extends State<MapScreen> {
     });
     _listenToAlerts();
     _runCleanup();
+    // Alert notifications are handled globally by AlertNotificationService
   }
 
   // ──────────────────── Loading timeout (AUDIT-3) ────────────────────
@@ -130,16 +129,8 @@ class MapScreenState extends State<MapScreen> {
   void _listenToAlerts() {
     _alertService.watchAlerts(widget.groupCode).listen((alerts) {
       if (!mounted) return;
-      final newIds = alerts.map((a) => a.id).toSet();
-      for (final alert in alerts) {
-        if (!_seenAlertIds.contains(alert.id) &&
-            alert.userId != _firebaseService.userId) {
-          _showAlertNotification(alert);
-        }
-      }
       setState(() {
         _alerts = alerts.where((a) => !a.resolved).toList();
-        _seenAlertIds = newIds;
       });
     });
   }
@@ -437,13 +428,6 @@ class MapScreenState extends State<MapScreen> {
         ),
       ),
     );
-  }
-
-  void _showAlertNotification(AlertData alert) {
-    try {
-      final notif = NotificationService();
-      notif.showAlertNotification(alert).catchError((_) {});
-    } catch (_) {}
   }
 
   Future<void> _runCleanup() async {
