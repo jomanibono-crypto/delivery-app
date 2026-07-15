@@ -43,6 +43,9 @@ app.*.map.json
 .publish_config.json
 scripts/.publish_config.json
 
+# Local design mockups (not part of the app source)
+design_mockups/
+
 # Unauthorized/security-risk files — never commit these
 *_key_search*.js
 *_scan.js

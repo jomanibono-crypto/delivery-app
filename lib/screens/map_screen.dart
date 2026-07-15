@@ -1,8 +1,14 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:firebase_database/firebase_database.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_spacing.dart';
+import '../theme/app_typography.dart';
+import '../widgets/app_bottom_nav.dart';
+import '../widgets/status_pill.dart';
 import '../config/mapbox_config.dart';
 import '../services/firebase_service.dart';
 import '../services/map_cache_service.dart';
@@ -991,8 +997,6 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     // Error state
     if (_error != null) {
       final errorView = MapErrorView(
@@ -1004,20 +1008,34 @@ class _MapScreenState extends State<MapScreen> {
       );
       return widget.embedded
           ? errorView
-          : Scaffold(appBar: _buildAppBar(), body: errorView);
+          : Scaffold(
+              backgroundColor: AppColors.ink800,
+              body: SafeArea(
+                bottom: false,
+                child: Column(
+                  children: [
+                    if (!widget.embedded) _buildMapTopBar(),
+                    Expanded(child: errorView),
+                  ],
+                ),
+              ),
+              bottomNavigationBar:
+                  widget.embedded ? null : _buildBottomNav(),
+            );
     }
 
     // Map content
     final mapBody = Stack(
       children: [
-        RepaintBoundary(
-          child: FlutterMap(
-            mapController: _mapCtrl,
-            options: MapOptions(
-              initialCenter: MapCameraService.defaultCenter,
-              initialZoom: 15.5,
-              minZoom: 3,
-              maxZoom: 18,
+        // Map (dark background to avoid white flash before tiles load)
+        Container(color: AppColors.ink800),
+        FlutterMap(
+          mapController: _mapCtrl,
+          options: MapOptions(
+            initialCenter: MapCameraService.defaultCenter,
+            initialZoom: 15.5,
+            minZoom: 3,
+            maxZoom: 18,
             onMapReady: () {
               _mapReadySafetyTimer?.cancel();
               setState(() => _mapReady = true);
@@ -1027,183 +1045,302 @@ class _MapScreenState extends State<MapScreen> {
                 debugPrint('[Map] Camera moved to $_pendingCamera zoom=$_pendingZoom');
               }
             },
-              onPositionChanged: (_, hasGesture) {
-                if (hasGesture) _userInteracted = true;
-              },
-              onLongPress: _onLongPress,
-            ),
-            children: [
-              TileLayer(
-                urlTemplate: _tileUrl,
-                userAgentPackageName: MapboxConfig.attributionPackage,
-                maxNativeZoom: MapboxConfig.maxNativeZoom,
-                tileProvider: MapCacheService.tileProvider(_tileUrl),
-                errorTileCallback: _onTileError,
-              ),
-              if (_route.length >= 2)
-                PolylineLayer(
-                  polylines: [
-                    Polyline(
-                      points: _route,
-                      color: theme.colorScheme.secondary.withValues(alpha: 0.5),
-                      strokeWidth: 4,
-                    ),
-                  ],
-                ),
-              ValueListenableBuilder(
-                valueListenable: _alertsNotifier,
-                builder: (_, alerts, _) => MarkerLayer(
-                  markers: _buildAlertMarkers(),
-                ),
-              ),
-              ValueListenableBuilder(
-                valueListenable: _membersNotifier,
-                builder: (_, members, _) => MarkerLayer(
-                  markers: _buildMemberMarkers(),
-                ),
-              ),
-            ],
+            onPositionChanged: (_, hasGesture) {
+              if (hasGesture) _userInteracted = true;
+            },
+            onLongPress: _onLongPress,
           ),
+          children: [
+            TileLayer(
+              urlTemplate: _tileUrl,
+              userAgentPackageName: MapboxConfig.attributionPackage,
+              maxNativeZoom: MapboxConfig.maxNativeZoom,
+              tileProvider: MapCacheService.tileProvider(_tileUrl),
+              errorTileCallback: _onTileError,
+            ),
+            if (_route.length >= 2)
+              PolylineLayer(
+                polylines: [
+                  Polyline(
+                    points: _route,
+                    color: AppColors.orange500.withValues(alpha: 0.85),
+                    strokeWidth: 4,
+                  ),
+                ],
+              ),
+            ValueListenableBuilder(
+              valueListenable: _alertsNotifier,
+              builder: (_, alerts, _) => MarkerLayer(
+                markers: _buildAlertMarkers(),
+              ),
+            ),
+            ValueListenableBuilder(
+              valueListenable: _membersNotifier,
+              builder: (_, members, _) => MarkerLayer(
+                markers: _buildMemberMarkers(),
+              ),
+            ),
+          ],
         ),
-        // Member selector buttons
+
+        // Top glass bar (status + group code)
+        if (!widget.embedded) _buildMapTopBar(),
+
+        // Members floating card
+        if (_members.isNotEmpty) _buildMembersCard(),
+
+        // FABs
         Positioned(
-          right: 16,
-          bottom: 16,
+          right: AppSpacing.lg,
+          bottom: widget.embedded
+              ? AppSpacing.huge
+              : AppSpacing.huge * 2.5,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              if (_followingMemberId != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: FloatingActionButton.extended(
-                    heroTag: 'showAll',
-                    onPressed: _showAll,
-                    icon: const Icon(Icons.group_work_rounded),
-                    label: const Text('الكل'),
-                    backgroundColor: theme.colorScheme.primary,
-                    foregroundColor: Colors.white,
-                  ),
+              if (_followingMemberId != null) ...[
+                _MapFab(
+                  icon: Icons.group_work_rounded,
+                  onPressed: _showAll,
+                  extended: 'الكل',
+                  variant: _FabVariant.primary,
                 ),
-              FloatingActionButton(
-                heroTag: 'pickMember',
+                const SizedBox(height: AppSpacing.sm),
+              ],
+              _MapFab(
+                icon: Icons.people_alt_outlined,
                 onPressed: _openMemberPicker,
-                tooltip: 'اختر عضواً',
-                backgroundColor: Colors.white,
-                foregroundColor: theme.colorScheme.primary,
-                child: const Icon(Icons.people_alt_outlined),
+                variant: _FabVariant.secondary,
               ),
             ],
           ),
         ),
+
         // OSM banner
         if (_fellBackToOsm && _mapReady)
           Positioned(
-            top: 8,
-            left: 8,
+            top: AppSpacing.lg,
+            left: AppSpacing.lg,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.md,
+                vertical: AppSpacing.xs,
+              ),
               decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Text(
-                'OpenStreetMap',
-                style: TextStyle(color: Colors.white, fontSize: 11),
-              ),
-            ),
-          ),
-        // Loading overlay — shown until tiles are revealed (first smart camera)
-        if (!_tilesRevealed)
-          Positioned.fill(
-            child: Container(
-              color: Colors.black38,
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const SizedBox(
-                      width: 32,
-                      height: 32,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 3,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    const Text(
-                      'جارٍ تحضير الخريطة...',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'يتم تحميل موقعك',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ],
+                color: Colors.black.withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.1),
                 ),
               ),
+              child: Text(
+                'OpenStreetMap',
+                style: AppTypography.labelSm.copyWith(color: Colors.white),
+              ),
             ),
           ),
+
+        // Loading overlay
+        if (!_tilesRevealed) _buildLoadingOverlay(),
       ],
     );
 
     if (widget.embedded) return mapBody;
 
     return Scaffold(
-      appBar: _buildAppBar(),
+      backgroundColor: AppColors.ink800,
+      extendBody: true,
       body: mapBody,
       bottomNavigationBar: _buildBottomNav(),
     );
   }
 
-  PreferredSizeWidget _buildAppBar() => AppBar(
-    title: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          Icons.map_rounded,
-          size: 22,
-          color: Theme.of(context).colorScheme.primary,
+  Widget _buildMapTopBar() {
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            AppSpacing.md,
+            AppSpacing.lg,
+            0,
+          ),
+          child: Row(
+            children: [
+              // Live indicator
+              _GlassPill(
+                dotColor: AppColors.mint500,
+                child: Text(
+                  '${_members.values.where((m) => m['online'] == true).length} متصل',
+                  style: AppTypography.labelMd.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              // Group code pill
+              Expanded(
+                child: _GlassPill(
+                  icon: Icons.tag_rounded,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'المجموعة: ',
+                        style: AppTypography.labelMd.copyWith(
+                          color: Colors.white70,
+                        ),
+                      ),
+                      Text(
+                        widget.groupCode,
+                        style: AppTypography.labelLg.copyWith(
+                          color: Colors.white,
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-        const SizedBox(width: 8),
-        const Text('خريطة المجموعة'),
-      ],
-    ),
-  );
+      ),
+    );
+  }
+
+  Widget _buildMembersCard() {
+    return Positioned(
+      left: AppSpacing.lg,
+      right: AppSpacing.lg,
+      bottom: widget.embedded
+          ? AppSpacing.lg
+          : AppSpacing.xxxl * 2.5,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.7),
+          borderRadius: BorderRadius.circular(AppRadius.xl),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.12),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.4),
+              blurRadius: 24,
+              offset: const Offset(0, 12),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadius.xl),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        'الأعضاء القريبون',
+                        style: AppTypography.titleSm.copyWith(
+                          color: Colors.white,
+                        ),
+                      ),
+                      const Spacer(),
+                      const StatusPill(
+                        label: 'مباشر',
+                        color: AppColors.mint500,
+                        dot: true,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  SizedBox(
+                    height: 64,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _members.length,
+                      separatorBuilder: (_, _) =>
+                          const SizedBox(width: AppSpacing.sm),
+                      itemBuilder: (_, i) {
+                        final entry = _members.entries.elementAt(i);
+                        final isMe = entry.key == _fb.userId;
+                        final isFollowed = entry.key == _followingMemberId;
+                        return _MemberChip(
+                          name: (entry.value['name'] as String?) ?? '',
+                          isMe: isMe,
+                          isFollowed: isFollowed,
+                          onTap: () {
+                            if (isMe) {
+                              _showAll();
+                            } else {
+                              _selectMember(entry.key);
+                            }
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLoadingOverlay() {
+    return Positioned.fill(
+      child: ColoredBox(
+        color: AppColors.ink900.withValues(alpha: 0.6),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(
+                width: 36,
+                height: 36,
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.xl),
+              Text(
+                'جارٍ تحضير الخريطة...',
+                style: AppTypography.titleMd.copyWith(color: Colors.white),
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'يتم تحميل موقعك',
+                style: AppTypography.bodySm.copyWith(
+                  color: Colors.white.withValues(alpha: 0.7),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Old _buildAppBar removed in v1.9.0 redesign — top bar is now
+  // [build] -> [_buildMapTopBar] (glass pill overlay) instead.
 
   Widget _buildBottomNav() {
-    return NavigationBar(
+    return AppBottomNav(
       selectedIndex: 0,
-      destinations: const [
-        NavigationDestination(
-          icon: Icon(Icons.map_outlined),
-          selectedIcon: Icon(Icons.map_rounded),
-          label: 'الخريطة',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.chat_bubble_outline_rounded),
-          selectedIcon: Icon(Icons.chat_bubble_rounded),
-          label: 'الدردشة',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.block_outlined),
-          selectedIcon: Icon(Icons.block_rounded),
-          label: 'القائمة السوداء',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.settings_outlined),
-          selectedIcon: Icon(Icons.settings_rounded),
-          label: 'الإعدادات',
-        ),
-      ],
       onDestinationSelected: (i) {
         if (i == 1) {
           _navigate(
@@ -1234,6 +1371,216 @@ class _MapScreenState extends State<MapScreen> {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => screen),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  PRIVATE HELPER WIDGETS — used by the redesigned map screen
+// ═══════════════════════════════════════════════════════════════
+
+class _GlassPill extends StatelessWidget {
+  final Widget child;
+  final IconData? icon;
+  final Color? dotColor;
+  const _GlassPill({required this.child, this.icon, this.dotColor});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(AppRadius.chip),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.55),
+            borderRadius: BorderRadius.circular(AppRadius.chip),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.12),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (dotColor != null) ...[
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: dotColor,
+                    boxShadow: [
+                      BoxShadow(
+                        color: dotColor!.withValues(alpha: 0.5),
+                        blurRadius: 6,
+                        spreadRadius: 1,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.xs),
+              ] else if (icon != null) ...[
+                Icon(icon, color: Colors.white70, size: 14),
+                const SizedBox(width: AppSpacing.xs),
+              ],
+              child,
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+enum _FabVariant { primary, secondary }
+
+class _MapFab extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onPressed;
+  final String? extended;
+  final _FabVariant variant;
+  const _MapFab({
+    required this.icon,
+    required this.onPressed,
+    this.extended,
+    this.variant = _FabVariant.secondary,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isPrimary = variant == _FabVariant.primary;
+    final bg = isPrimary ? AppColors.indigo500 : Colors.white;
+    final fg = isPrimary ? Colors.white : AppColors.indigo600;
+    final size = AppSpacing.fab;
+    final radius = BorderRadius.circular(AppRadius.lg);
+    final shape = RoundedRectangleBorder(borderRadius: radius);
+    if (extended != null) {
+      return Material(
+        color: bg,
+        shape: shape,
+        elevation: 6,
+        shadowColor: Colors.black.withValues(alpha: 0.4),
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: radius,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg,
+              vertical: AppSpacing.md,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, color: fg, size: 20),
+                const SizedBox(width: AppSpacing.sm),
+                Text(
+                  extended!,
+                  style: AppTypography.buttonMd.copyWith(color: fg),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    return Material(
+      color: bg,
+      shape: shape,
+      elevation: 6,
+      shadowColor: Colors.black.withValues(alpha: 0.4),
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: radius,
+        child: SizedBox(
+          width: size,
+          height: size,
+          child: Icon(icon, color: fg, size: 24),
+        ),
+      ),
+    );
+  }
+}
+
+class _MemberChip extends StatelessWidget {
+  final String name;
+  final bool isMe;
+  final bool isFollowed;
+  final VoidCallback onTap;
+  const _MemberChip({
+    required this.name,
+    required this.isMe,
+    required this.isFollowed,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isMe
+        ? AppColors.orange500
+        : isFollowed
+            ? AppColors.indigo500
+            : AppColors.indigo300;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm,
+          ),
+          decoration: BoxDecoration(
+            color: isFollowed
+                ? AppColors.indigo500.withValues(alpha: 0.3)
+                : Colors.white.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(
+              color: isFollowed
+                  ? AppColors.indigo500.withValues(alpha: 0.6)
+                  : Colors.white.withValues(alpha: 0.05),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    colors: [color, color.withValues(alpha: 0.6)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                ),
+                child: Center(
+                  child: Text(
+                    name.isNotEmpty ? name.characters.first : '?',
+                    style: AppTypography.labelSm.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Text(
+                isMe ? 'أنت' : name,
+                style: AppTypography.labelMd.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

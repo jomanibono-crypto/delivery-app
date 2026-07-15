@@ -22,6 +22,10 @@ import '../widgets/proximity_alert_settings.dart';
 import '../widgets/appearance_settings.dart';
 import '../services/theme_service.dart';
 import '../services/foreground_screen_service.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_spacing.dart';
+import '../theme/app_typography.dart';
+import '../widgets/app_bottom_nav.dart';
 import 'health_dashboard.dart';
 import 'group_screen.dart';
 import 'map_screen.dart';
@@ -145,17 +149,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
+        backgroundColor: AppColors.surface,
+        elevation: 0,
+        scrolledUnderElevation: 1,
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.settings_rounded,
-              size: 22,
-              color: theme.colorScheme.primary,
+            Container(
+              width: 32,
+              height: 32,
+              decoration: const BoxDecoration(
+                gradient: AppColors.primaryGradient,
+                borderRadius: BorderRadius.all(Radius.circular(10)),
+              ),
+              child: const Icon(
+                Icons.settings_rounded,
+                color: Colors.white,
+                size: 18,
+              ),
             ),
-            const SizedBox(width: 8),
-            const Text('الإعدادات'),
+            const SizedBox(width: AppSpacing.md),
+            const Text('الإعدادات', style: AppTypography.titleLg),
           ],
         ),
       ),
@@ -850,30 +866,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildBottomNav() {
-    return NavigationBar(
+    return AppBottomNav(
       selectedIndex: 3,
-      destinations: const [
-        NavigationDestination(
-          icon: Icon(Icons.map_outlined),
-          selectedIcon: Icon(Icons.map_rounded),
-          label: 'الخريطة',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.chat_bubble_outline_rounded),
-          selectedIcon: Icon(Icons.chat_bubble_rounded),
-          label: 'الدردشة',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.block_outlined),
-          selectedIcon: Icon(Icons.block_rounded),
-          label: 'القائمة السوداء',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.settings_outlined),
-          selectedIcon: Icon(Icons.settings_rounded),
-          label: 'الإعدادات',
-        ),
-      ],
       onDestinationSelected: (index) {
         if (index == 0) {
           Navigator.pushReplacement(

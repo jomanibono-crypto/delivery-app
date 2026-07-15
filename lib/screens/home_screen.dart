@@ -19,6 +19,9 @@ import '../services/alert_service.dart';
 import '../services/proximity_service.dart';
 import '../services/alert_notification_service.dart';
 import '../services/foreground_screen_service.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_spacing.dart';
+import '../widgets/app_bottom_nav.dart';
 import 'map_screen.dart';
 import 'settings_screen.dart';
 import 'chat_screen.dart';
@@ -625,16 +628,28 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final theme = Theme.of(context);
 
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
+        backgroundColor: AppColors.surface,
+        elevation: 0,
+        scrolledUnderElevation: 1,
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.group_rounded,
-              size: 22,
-              color: theme.colorScheme.primary,
+            Container(
+              width: 32,
+              height: 32,
+              decoration: const BoxDecoration(
+                gradient: AppColors.primaryGradient,
+                borderRadius: BorderRadius.all(Radius.circular(10)),
+              ),
+              child: const Icon(
+                Icons.group_rounded,
+                color: Colors.white,
+                size: 18,
+              ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: AppSpacing.md),
             Text('المجموعة: ${widget.groupCode}'),
           ],
         ),
@@ -730,30 +745,8 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   // ──────────────────── Bottom Navigation ────────────────────
 
   Widget _buildBottomNav() {
-    return NavigationBar(
+    return AppBottomNav(
       selectedIndex: 0,
-      destinations: const [
-        NavigationDestination(
-          icon: Icon(Icons.map_outlined),
-          selectedIcon: Icon(Icons.map),
-          label: 'الخريطة',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.chat_bubble_outline),
-          selectedIcon: Icon(Icons.chat_bubble),
-          label: 'الدردشة',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.block_outlined),
-          selectedIcon: Icon(Icons.block),
-          label: 'القائمة السوداء',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.settings_outlined),
-          selectedIcon: Icon(Icons.settings),
-          label: 'الإعدادات',
-        ),
-      ],
       onDestinationSelected: (index) {
         if (index == 0) {
           Navigator.pushReplacement(

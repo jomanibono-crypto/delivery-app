@@ -5,6 +5,10 @@ import 'package:firebase_database/firebase_database.dart';
 import '../services/firebase_service.dart';
 import '../services/local_storage_service.dart';
 import '../services/foreground_screen_service.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_spacing.dart';
+import '../theme/app_typography.dart';
+import '../widgets/app_bottom_nav.dart';
 import 'map_screen.dart';
 import 'settings_screen.dart';
 import 'blacklist_screen.dart';
@@ -154,95 +158,19 @@ class ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.chat_bubble_rounded,
-              size: 22,
-              color: theme.colorScheme.primary,
-            ),
-            const SizedBox(width: 8),
-            const Text('الدردشة'),
-          ],
-        ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(left: 12),
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.secondaryContainer,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.chat_rounded,
-                      size: 16,
-                      color: theme.colorScheme.secondary,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${_messages.length}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: theme.colorScheme.onSecondaryContainer,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+      backgroundColor: AppColors.background,
       body: Column(
         children: [
+          _buildChatHeader(),
           Expanded(
             child: _messages.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 72,
-                          height: 72,
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Icon(
-                            Icons.chat_bubble_outline_rounded,
-                            size: 36,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'لا توجد رسائل بعد...\nأرسل أول رسالة في المجموعة!',
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
+                ? _buildEmptyState()
                 : ListView.builder(
                     controller: _scrollController,
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
+                      horizontal: AppSpacing.lg,
+                      vertical: AppSpacing.md,
                     ),
                     itemCount: _messages.length,
                     itemBuilder: (context, index) {
@@ -269,79 +197,199 @@ class ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildInputBar() {
-    final theme = Theme.of(context);
+  Widget _buildChatHeader() {
     return Container(
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 6,
-            offset: const Offset(0, -2),
-          ),
-        ],
+        color: AppColors.surface,
+        border: Border(
+          bottom: BorderSide(color: AppColors.ink100, width: 1),
+        ),
       ),
       child: SafeArea(
+        bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            AppSpacing.md,
+            AppSpacing.lg,
+            AppSpacing.md,
+          ),
           child: Row(
             children: [
               Container(
-                width: 36,
-                height: 36,
+                width: 40,
+                height: 40,
+                decoration: const BoxDecoration(
+                  gradient: AppColors.primaryGradient,
+                  borderRadius: BorderRadius.all(Radius.circular(12)),
+                ),
+                child: const Icon(
+                  Icons.chat_bubble_rounded,
+                  size: 20,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'المجموعة',
+                      style: AppTypography.titleMd,
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: const BoxDecoration(
+                            color: AppColors.mint500,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          '${_messages.length} رسالة',
+                          style: AppTypography.labelSm.copyWith(
+                            color: AppColors.mint500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.search_rounded),
+                color: AppColors.ink700,
+                onPressed: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xxl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 88,
+              height: 88,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    AppColors.indigo100,
+                    AppColors.indigo50,
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(AppRadius.xl),
+              ),
+              child: const Icon(
+                Icons.chat_bubble_outline_rounded,
+                size: 40,
+                color: AppColors.indigo500,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            Text(
+              'لا توجد رسائل بعد...',
+              style: AppTypography.titleLg,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              'أرسل أول رسالة في المجموعة!',
+              style: AppTypography.bodyMd.copyWith(
+                color: AppColors.ink500,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInputBar() {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 12,
+            offset: const Offset(0, -4),
+          ),
+        ],
+        border: Border(
+          top: BorderSide(color: AppColors.ink100, width: 1),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.md,
+            AppSpacing.sm,
+            AppSpacing.md,
+            AppSpacing.sm,
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(12),
+                  color: AppColors.ink50,
+                  borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
                 child: Center(
                   child: Text(_myIcon, style: const TextStyle(fontSize: 18)),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: AppSpacing.sm),
               Expanded(
-                child: TextField(
-                  controller: _msgController,
-                  textDirection: TextDirection.rtl,
-                  maxLines: 4,
-                  minLines: 1,
-                  decoration: InputDecoration(
-                    hintText: 'اكتب رسالة...',
-                    filled: true,
-                    fillColor: theme.colorScheme.surfaceContainerHighest,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(24),
-                      borderSide: BorderSide.none,
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 10,
-                    ),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.ink50,
+                    borderRadius: BorderRadius.circular(22),
                   ),
-                  onSubmitted: (_) => _sendMessage(),
+                  child: TextField(
+                    controller: _msgController,
+                    textDirection: TextDirection.rtl,
+                    maxLines: 4,
+                    minLines: 1,
+                    style: AppTypography.bodyLg,
+                    decoration: InputDecoration(
+                      hintText: 'اكتب رسالة...',
+                      hintStyle: AppTypography.bodyLg.copyWith(
+                        color: AppColors.ink300,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      filled: false,
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.lg,
+                        vertical: AppSpacing.md,
+                      ),
+                    ),
+                    onSubmitted: (_) => _sendMessage(),
+                  ),
                 ),
               ),
-              const SizedBox(width: 8),
-              Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  color: theme.colorScheme.primary,
-                ),
-                child: IconButton(
-                  onPressed: _isSending ? null : _sendMessage,
-                  icon: _isSending
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.send_rounded),
-                  color: Colors.white,
-                  iconSize: 22,
-                ),
+              const SizedBox(width: AppSpacing.sm),
+              _SendButton(
+                isLoading: _isSending,
+                onPressed: _isSending ? null : _sendMessage,
               ),
             ],
           ),
@@ -351,30 +399,8 @@ class ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildBottomNav() {
-    return NavigationBar(
+    return AppBottomNav(
       selectedIndex: 1,
-      destinations: const [
-        NavigationDestination(
-          icon: Icon(Icons.map_outlined),
-          selectedIcon: Icon(Icons.map_rounded),
-          label: 'الخريطة',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.chat_bubble_outline_rounded),
-          selectedIcon: Icon(Icons.chat_bubble_rounded),
-          label: 'الدردشة',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.block_outlined),
-          selectedIcon: Icon(Icons.block_rounded),
-          label: 'القائمة السوداء',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.settings_outlined),
-          selectedIcon: Icon(Icons.settings_rounded),
-          label: 'الإعدادات',
-        ),
-      ],
       onDestinationSelected: (index) {
         if (index == 0) {
           Navigator.pushReplacement(
@@ -412,6 +438,49 @@ class ChatScreenState extends State<ChatScreen> {
   }
 }
 
+class _SendButton extends StatelessWidget {
+  final bool isLoading;
+  final VoidCallback? onPressed;
+  const _SendButton({required this.isLoading, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: AppColors.primaryGradient,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        boxShadow: AppColors.shadowGlowPrimary,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          child: Container(
+            width: 44,
+            height: 44,
+            alignment: Alignment.center,
+            child: isLoading
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(
+                    Icons.send_rounded,
+                    size: 20,
+                    color: Colors.white,
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _MessageBubble extends StatelessWidget {
   final String message;
   final String name;
@@ -439,79 +508,88 @@ class _MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final bubble = Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
       child: Column(
-        crossAxisAlignment: isMe
-            ? CrossAxisAlignment.end
-            : CrossAxisAlignment.start,
+        crossAxisAlignment:
+            isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               if (!isMe) ...[
                 Container(
-                  width: 24,
-                  height: 24,
+                  width: 28,
+                  height: 28,
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(8),
+                    color: AppColors.indigo50,
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
                   ),
                   child: Center(
                     child: Text(
                       icon.isNotEmpty ? icon : '🧑',
-                      style: const TextStyle(fontSize: 14),
+                      style: const TextStyle(fontSize: 16),
                     ),
                   ),
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: AppSpacing.sm),
               ],
               Text(
                 isMe ? 'أنت' : name,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
+                style: AppTypography.labelSm.copyWith(
                   color: isMe
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.onSurfaceVariant,
+                      ? AppColors.indigo600
+                      : AppColors.ink500,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
               if (isMe) ...[
-                const SizedBox(width: 6),
+                const SizedBox(width: AppSpacing.sm),
                 Container(
-                  width: 24,
-                  height: 24,
+                  width: 28,
+                  height: 28,
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(8),
+                    color: AppColors.orange500.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
                   ),
                   child: Center(
                     child: Text(
                       icon.isNotEmpty ? icon : '🧑',
-                      style: const TextStyle(fontSize: 14),
+                      style: const TextStyle(fontSize: 16),
                     ),
                   ),
                 ),
               ],
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: AppSpacing.xs),
           Container(
             constraints: BoxConstraints(
               maxWidth: MediaQuery.of(context).size.width * 0.75,
             ),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg,
+              vertical: AppSpacing.md,
+            ),
             decoration: BoxDecoration(
-              color: isMe
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.surfaceContainerHighest,
+              gradient: isMe ? AppColors.primaryGradient : null,
+              color: isMe ? null : AppColors.surface,
               borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(16),
-                topRight: const Radius.circular(16),
-                bottomLeft: isMe ? const Radius.circular(16) : Radius.zero,
-                bottomRight: isMe ? Radius.zero : const Radius.circular(16),
+                topLeft: const Radius.circular(18),
+                topRight: const Radius.circular(18),
+                bottomLeft: isMe ? const Radius.circular(18) : Radius.zero,
+                bottomRight: isMe ? Radius.zero : const Radius.circular(18),
               ),
+              boxShadow: isMe
+                  ? AppColors.shadowGlowPrimary
+                  : [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.05),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+              border: isMe ? null : Border.all(color: AppColors.ink100),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -519,19 +597,18 @@ class _MessageBubble extends StatelessWidget {
                 Text(
                   message,
                   textDirection: TextDirection.rtl,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: isMe ? Colors.white : theme.colorScheme.onSurface,
+                  style: AppTypography.bodyMd.copyWith(
+                    color: isMe ? Colors.white : AppColors.ink900,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: AppSpacing.xxs),
                 Text(
                   _formatTime(timestamp),
-                  style: TextStyle(
-                    fontSize: 10,
+                  style: AppTypography.caption.copyWith(
                     color: isMe
-                        ? Colors.white60
-                        : theme.colorScheme.onSurfaceVariant,
+                        ? Colors.white.withValues(alpha: 0.65)
+                        : AppColors.ink400,
                   ),
                 ),
               ],

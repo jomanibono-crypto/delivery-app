@@ -1,5 +1,46 @@
 # Changelog
 
+## v1.9.0+42 — Security hardening, code cleanup & design refresh
+
+### Security
+- **Admin codes are now hashed.** `AdminService` stores SHA-256(salt + code) instead of plaintext codes. An attacker unpacking the APK can no longer read admin codes directly. Build-time override via `--dart-define=ADMIN_MASTER_CODE=xxxxx` for emergency access.
+- **Constant-time comparison** for admin code verification to prevent timing attacks.
+- **Brute-force lockout** — 3 failed attempts lock the admin panel for 30 seconds.
+
+### Design refresh (new GlovoMate look)
+- **New design system** under `lib/theme/` (app_colors, app_typography, app_spacing) — central source of truth for colors, typography, radii.
+- **Common widgets**: `GlassCard`, `AppButton` (5 variants), `AppInput`, `AppSwitch`, `StatusPill`, `AppBottomNav`.
+- **Splash screen** — deep indigo gradient, glass logo tile, animated loading dots.
+- **Group screen** — gradient hero card, focused-state inputs, primary/tonal button pair.
+- **Map screen** — dark theme map background, glass top bar with live indicator + group code, members floating card with glassmorphism, redesigned FABs.
+- **Chat screen** — gradient indigo bubbles, glass input bar with gradient send button, custom chat header with status pill.
+- **Blacklist screen** — gradient hero stats card, redesigned entry cards, integrated search, FAB add button.
+- **Settings screen** — modern AppBar with gradient icon, switches to use `AppBottomNav` for consistency.
+- **Home screen** — modern AppBar with gradient icon, `AppBottomNav` integration.
+
+### Bug Fixes
+- **Proximity channel id mismatch fixed.** `ProximityService` now binds to the versioned `proximity_channel_vN` (matching `NotificationService`) so the user's chosen sound and priority actually apply to alert proximity notifications.
+- **Chat notifications no longer fire while user is in chat.** Replaced the always-`false` `_chatScreenActive` flag with a real `ForegroundScreenService`.
+
+### Cleanup
+- Removed dead `MapLoadingView` widget.
+
+### Files Added
+- `lib/theme/app_colors.dart` — full color palette + gradient/shadow tokens.
+- `lib/theme/app_typography.dart` — typography scale (display, title, body, label, number, button).
+- `lib/theme/app_spacing.dart` — 4pt-grid spacing tokens + radius tokens.
+- `lib/widgets/glass_card.dart` — base card with optional gradient + shadow.
+- `lib/widgets/app_button.dart` — unified button with 5 variants.
+- `lib/widgets/app_input.dart` — themed text input.
+- `lib/widgets/app_switch.dart` — themed toggle.
+- `lib/widgets/status_pill.dart` — colored status badge.
+- `lib/widgets/app_bottom_nav.dart` — floating glass-style bottom nav.
+- `lib/services/foreground_screen_service.dart` — tracks the current foreground screen.
+
+### Verification
+- `flutter analyze lib/ --no-fatal-infos` → **No issues found.**
+- APK build attempted but blocked by network timeouts (Connection timed out to storage.googleapis.com). Code is verified clean.
+
 ## v1.9.0+42 — Security hardening & code cleanup
 
 ### Security
