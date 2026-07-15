@@ -1,6 +1,54 @@
 # Changelog
 
-## v1.8.0 — Auto-update, Map Loading, Sound Preview, Test Buttons, Startup Performance
+## v1.9.0+42 — Security hardening & code cleanup
+
+### Security
+- **Admin codes are now hashed.** `AdminService` stores SHA-256(salt + code) instead of plaintext codes. An attacker unpacking the APK can no longer read admin codes directly. Build-time override via `--dart-define=ADMIN_MASTER_CODE=xxxxx` for emergency access.
+- **Constant-time comparison** for admin code verification to prevent timing attacks.
+- **Brute-force lockout** — 3 failed attempts lock the admin panel for 30 seconds.
+
+### Bug Fixes
+- **Proximity channel id mismatch fixed.** `ProximityService` now binds to the versioned `proximity_channel_vN` (matching `NotificationService`) so the user's chosen sound and priority actually apply to alert proximity notifications. Previously the id was hardcoded to `v3`, so sound changes beyond v3 would no longer affect proximity alerts.
+- **Chat notifications no longer fire while user is in chat.** Replaced the always-`false` `_chatScreenActive` flag with a real `ForegroundScreenService` that tracks the visible top-level screen (map/chat/blacklist/settings). Home listener now correctly suppresses chat pings when the user is already viewing the chat screen.
+
+### Cleanup
+- Removed dead `MapLoadingView` widget (unused; the map renders its own loading overlay).
+
+### Files Added
+- `lib/services/foreground_screen_service.dart` — Tracks the current foreground screen; exposed via `isActive(ForegroundScreen.chat)` etc.
+
+### Files Changed
+- `lib/services/admin_service.dart` — Rewritten with SHA-256 + salt + rate limit + master-code override.
+- `lib/services/proximity_service.dart` — `channelId` is now mutable via `updateChannelId()`.
+- `lib/main.dart` — Passes `channelId` to the background-service `ProximityService`.
+- `lib/screens/home_screen.dart` — Replaces `_chatScreenActive` with `ForegroundScreenService` lookup.
+- `lib/screens/{chat,map,blacklist,settings}_screen.dart` — Register/deregister with `ForegroundScreenService` in `initState`/`dispose`.
+- `lib/widgets/map_loading_view.dart` — **Deleted** (dead code).
+
+### Verification
+- `flutter analyze lib/ --no-fatal-infos` → **No issues found.**
+
+## v1.9.0 — Admin Mode, Message Deletion, Daily Statistics, Mapbox Restored
+
+### New Features
+- **Group Admin Mode** — Enter admin code (2010/2020/2030) from Settings to unlock admin panel. Admins can remove any member, delete any alert (police, radar, inspector, hazard, accident, bad customer, control).
+- **Delete Own Chat Messages** — Long press on any message you sent to delete it. Message disappears immediately for all group members via Firebase realtime sync.
+- **Daily Distance & Time Statistics** — Automatically tracks distance traveled (km), driving time, moving time, and stopped time. Resets every 24 hours. Data stored locally. View from Settings.
+- **Mapbox Restored** — Mapbox raster tiles re-enabled with production token for map rendering.
+
+### Files Added
+- `lib/services/admin_service.dart` — Singleton that verifies admin codes 2010/2020/2030.
+- `lib/screens/admin_panel_screen.dart` — Admin panel showing members list (with remove) and alerts list (with delete).
+- `lib/services/daily_stats_service.dart` — Tracks daily KM, driving/moving/stopped time, persists to SharedPreferences, auto-resets at midnight.
+- `lib/screens/stats_screen.dart` — Displays daily stats in card layout with icons.
+
+### Files Changed
+- `lib/services/firebase_service.dart` — Added `deleteMessage()` and `removeMemberFromGroup()` methods.
+- `lib/screens/chat_screen.dart` — Long press on own message shows delete confirmation; message removed from Firebase.
+- `lib/screens/settings_screen.dart` — Added "Admin Mode" section with code entry and panel navigation; added "Daily Stats" button.
+- `lib/screens/home_screen.dart` — Integrates `DailyStatsService.updatePosition()` on each GPS tick; flushes on dispose.
+- `pubspec.yaml` — Version bumped to 1.9.0+42.
+- `CHANGELOG.md` — Updated with v1.9.0 entry.
 
 ### New Features
 - **Automatic Update Improvement** — On launch, if a new version is found, the APK downloads automatically in the background with a progress indicator shown on the splash screen. On completion, the package installer opens automatically.

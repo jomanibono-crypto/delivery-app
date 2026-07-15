@@ -13,10 +13,12 @@ import '../services/local_storage_service.dart';
 import '../services/app_settings.dart';
 import '../services/permission_service.dart';
 import '../services/haversine.dart';
+import '../services/daily_stats_service.dart';
 import '../services/map_cache_service.dart';
 import '../services/alert_service.dart';
 import '../services/proximity_service.dart';
 import '../services/alert_notification_service.dart';
+import '../services/foreground_screen_service.dart';
 import 'map_screen.dart';
 import 'settings_screen.dart';
 import 'chat_screen.dart';
@@ -69,8 +71,13 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _tilesPreWarmed = false;
 
   final AlertService _alertService = AlertService();
+  // Use the same active notification channel as NotificationService so the
+  // user's configured sound + priority also apply to alert proximity pings.
+  // Fall back to the default v3 channel id before NotificationService
+  // initialises (initial assignment happens after `initialize()`).
   final ProximityService _proximityService = ProximityService(
     FlutterLocalNotificationsPlugin(),
+    channelId: NotificationService().activeChannelId,
   );
   List<AlertData> _alertCache = [];
   StreamSubscription<List<AlertData>>? _alertsSubHome;
@@ -80,7 +87,7 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   // Track processed message keys so we don't re-notify
   final Set<String> _notifiedMessages = {};
-  final bool _chatScreenActive = false;
+  // Now derived from ForegroundScreenService instead of being a dead constant.
 
   // When true, show the map directly instead of the tracking placeholder
   bool _showMapDirectly = false;
@@ -203,6 +210,13 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       debugPrint('[Home] AppSettings load failed: $e');
     }
 
+    // ── Load daily stats ──
+    try {
+      await DailyStatsService().load();
+    } catch (e) {
+      debugPrint('[Home] DailyStats load failed: $e');
+    }
+
     if (!mounted) return;
 
     // ── Foreground service + WakeLock ──
@@ -226,6 +240,11 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     try {
       await _notificationService.initialize();
       await _notificationService.requestPermissions();
+      // Re-bind the proximity service to the now-active channel id so the
+      // user's sound choice actually applies to alert proximity pings.
+      _proximityService.updateChannelId(
+        _notificationService.activeChannelId,
+      );
     } catch (e) {
       debugPrint('[Home] Notification init failed: $e');
     }
@@ -341,6 +360,9 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _tilesPreWarmed = true;
           MapCacheService.preWarm(LatLng(_myLat, _myLng));
         }
+
+        // Track daily stats
+        DailyStatsService().updatePosition(_myLat, _myLng, _mySpeed);
 
         // Upload location to Firebase via SET (overwrite). Include the icon
         // so other members see the chosen emoji (F1).
@@ -467,7 +489,7 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               _notifiedMessages.add(msgId);
 
               // Only notify if user is not actively viewing the chat screen
-              if (!_chatScreenActive) {
+              if (!ForegroundScreenService().isActive(ForegroundScreen.chat)) {
                 _notificationService.showChatMessageNotification(
                   senderName: senderName,
                   message: msgText,
@@ -510,6 +532,7 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _membersSubscription?.cancel();
     _messagesSubscription?.cancel();
     _alertsSubHome?.cancel();
+    DailyStatsService().flush();
     WakelockPlus.disable();
     super.dispose();
   }

@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../services/firebase_service.dart';
 import '../services/local_storage_service.dart';
+import '../services/foreground_screen_service.dart';
 import 'map_screen.dart';
 import 'settings_screen.dart';
 import 'blacklist_screen.dart';
@@ -36,6 +38,7 @@ class ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    ForegroundScreenService().set(ForegroundScreen.chat);
     _loadIcon();
     _listenToMessages();
   }
@@ -109,8 +112,40 @@ class ChatScreenState extends State<ChatScreen> {
     if (mounted) setState(() => _isSending = false);
   }
 
+  Future<void> _deleteMessage(String messageId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('حذف الرسالة'),
+          content: const Text('هل أنت متأكد من حذف هذه الرسالة؟'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('حذف'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed == true) {
+      await _firebaseService.deleteMessage(
+        groupCode: widget.groupCode,
+        messageId: messageId,
+      );
+    }
+  }
+
   @override
   void dispose() {
+    ForegroundScreenService().clear(ForegroundScreen.chat);
     _messagesSubscription?.cancel();
     _msgController.dispose();
     _scrollController.dispose();
@@ -219,6 +254,10 @@ class ChatScreenState extends State<ChatScreen> {
                         icon: msg['icon'] as String,
                         isMe: isMe,
                         timestamp: msg['timestamp'] as int,
+                        messageId: msg['id'] as String,
+                        onDelete: isMe
+                            ? () => _deleteMessage(msg['id'] as String)
+                            : null,
                       );
                     },
                   ),
@@ -379,6 +418,8 @@ class _MessageBubble extends StatelessWidget {
   final String icon;
   final bool isMe;
   final int timestamp;
+  final String messageId;
+  final VoidCallback? onDelete;
 
   const _MessageBubble({
     required this.message,
@@ -386,6 +427,8 @@ class _MessageBubble extends StatelessWidget {
     required this.icon,
     required this.isMe,
     required this.timestamp,
+    required this.messageId,
+    this.onDelete,
   });
 
   String _formatTime(int epochMs) {
@@ -397,7 +440,7 @@ class _MessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
+    final bubble = Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Column(
         crossAxisAlignment: isMe
@@ -497,5 +540,16 @@ class _MessageBubble extends StatelessWidget {
         ],
       ),
     );
+
+    if (onDelete != null) {
+      return GestureDetector(
+        onLongPress: () {
+          HapticFeedback.mediumImpact();
+          onDelete!();
+        },
+        child: bubble,
+      );
+    }
+    return bubble;
   }
 }

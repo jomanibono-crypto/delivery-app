@@ -347,6 +347,30 @@ class FirebaseService {
     return combined.toString().padLeft(6, '0');
   }
 
+  /// Delete a chat message by its push key.
+  Future<void> deleteMessage({
+    required String groupCode,
+    required String messageId,
+  }) async {
+    try {
+      await _db.child('live/${sanitizeFirebaseKey(groupCode)}/_chat/${sanitizeFirebaseKey(messageId)}').remove();
+    } catch (e) {
+      debugPrint('[FirebaseDB] deleteMessage failed: $e');
+    }
+  }
+
+  /// Admin: remove any member from the group.
+  Future<void> removeMemberFromGroup({
+    required String groupCode,
+    required String targetUserId,
+  }) async {
+    try {
+      await _db.child('live/${sanitizeFirebaseKey(groupCode)}/${sanitizeFirebaseKey(targetUserId)}').remove();
+    } catch (e) {
+      debugPrint('[FirebaseDB] removeMemberFromGroup failed: $e');
+    }
+  }
+
   /// Sign out from Firebase auth entirely.
   Future<void> signOut() async {
     await _auth.signOut();

@@ -12,8 +12,27 @@ import 'voice_service.dart';
 /// 500m+ away from that marker.
 class ProximityService {
   final FlutterLocalNotificationsPlugin _notifPlugin;
+  // The versioned channel id (e.g. 'proximity_channel_v3') used by
+  // [NotificationService]. Must match the active channel so the user's
+  // sound + MAX priority actually apply to alert proximity notifications.
+  String _channelId;
 
-  ProximityService(this._notifPlugin);
+  ProximityService(
+    this._notifPlugin, {
+    this._channelId = 'proximity_channel_v3',
+  });
+
+  /// Update the channel id used for proximity notifications. Call this
+  /// after [NotificationService.initialize] to bind to the versioned
+  /// channel that respects the user's chosen sound + priority.
+  void updateChannelId(String channelId) {
+    if (channelId.isNotEmpty && channelId != _channelId) {
+      debugPrint(
+        '[Proximity] Channel id updated: "$_channelId" -> "$channelId"',
+      );
+      _channelId = channelId;
+    }
+  }
 
   // Marker ID → has this marker already been notified?
   final Map<String, bool> _notifiedAlerts = {};
@@ -107,7 +126,7 @@ class ProximityService {
       '${alert.type.label} على بعد $distFormatted\n${alert.note.isNotEmpty ? 'ملاحظة: ${alert.note}' : ''}',
       NotificationDetails(
         android: AndroidNotificationDetails(
-          'proximity_channel_v3',
+          _channelId,
           'Proximity Alerts',
           channelDescription: 'Notifications when alert markers are nearby',
           importance: Importance.high,

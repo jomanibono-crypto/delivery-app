@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/blacklist_service.dart';
+import '../services/foreground_screen_service.dart';
 import 'map_screen.dart';
 import 'chat_screen.dart';
 import 'settings_screen.dart';
@@ -32,6 +33,7 @@ class _BlacklistScreenState extends State<BlacklistScreen> {
   @override
   void initState() {
     super.initState();
+    ForegroundScreenService().set(ForegroundScreen.blacklist);
     _subscription = _service.watchAll().listen((entries) {
       if (!mounted) return;
       setState(() {
@@ -43,6 +45,7 @@ class _BlacklistScreenState extends State<BlacklistScreen> {
 
   @override
   void dispose() {
+    ForegroundScreenService().clear(ForegroundScreen.blacklist);
     _subscription?.cancel();
     _searchController.dispose();
     _phoneController.dispose();

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:firebase_database/firebase_database.dart';
@@ -121,54 +122,66 @@ class UpdateService {
   }) async {
     debugPrint('[UpdateService] Downloading APK from: $url');
 
-    final response = await http.Client().send(
-      http.Request('GET', Uri.parse(url)),
-    );
+    // Use a single HttpClient with explicit redirect following
+    final client = http.Client();
+    try {
+      final request = http.Request('GET', Uri.parse(url));
+      request.followRedirects = true;
+      request.maxRedirects = 10;
 
-    if (response.statusCode != 200) {
-      throw Exception('Download failed: HTTP ${response.statusCode}');
-    }
+      final response = await client
+          .send(request)
+          .timeout(const Duration(minutes: 5));
 
-    final totalBytes = response.contentLength;
-    final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/glovo_mate_update.apk');
-    final sink = file.openWrite();
-
-    int downloadedBytes = 0;
-
-    await response.stream
-        .listen(
-          (chunk) {
-            downloadedBytes += chunk.length;
-            sink.add(chunk);
-            if (totalBytes != null && totalBytes > 0 && onProgress != null) {
-              onProgress(downloadedBytes / totalBytes);
-            }
-          },
-          onDone: sink.close,
-          onError: (e) {
-            sink.close();
-            throw Exception('Download stream error: ${e.toString()}');
-          },
-        )
-        .asFuture();
-
-    debugPrint('[UpdateService] APK downloaded to: ${file.path}');
-
-    if (expectedHash != null && expectedHash.isNotEmpty) {
-      final bytes = await file.readAsBytes();
-      final hashBytes = sha256.convert(bytes);
-      final computedHash = hashBytes.toString();
-      if (computedHash != expectedHash.toLowerCase()) {
-        await file.delete();
-        throw Exception(
-          'SHA-256 mismatch. Expected: $expectedHash, Computed: $computedHash',
-        );
+      if (response.statusCode != 200) {
+        throw Exception('Download failed: HTTP ${response.statusCode}');
       }
-      debugPrint('[UpdateService] SHA-256 verified successfully.');
-    }
 
-    return file.path;
+      final totalBytes = response.contentLength;
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/glovo_mate_update.apk');
+      final sink = file.openWrite();
+
+      int downloadedBytes = 0;
+
+      await response.stream
+          .listen(
+            (chunk) {
+              downloadedBytes += chunk.length;
+              sink.add(chunk);
+              if (totalBytes != null &&
+                  totalBytes > 0 &&
+                  onProgress != null) {
+                onProgress(downloadedBytes / totalBytes);
+              }
+            },
+            onDone: sink.close,
+            onError: (e) {
+              sink.close();
+              throw Exception('Download stream error: ${e.toString()}');
+            },
+          )
+          .asFuture();
+
+      debugPrint('[UpdateService] APK downloaded to: ${file.path}');
+
+      if (expectedHash != null && expectedHash.isNotEmpty) {
+        final bytes = await file.readAsBytes();
+        final hashBytes = sha256.convert(bytes);
+        final computedHash = hashBytes.toString();
+        if (computedHash != expectedHash.toLowerCase()) {
+          await file.delete();
+          throw Exception(
+            'SHA-256 mismatch. Expected: $expectedHash, Computed: $computedHash',
+          );
+        }
+        debugPrint('[UpdateService] SHA-256 verified successfully.');
+      }
+
+      return file.path;
+    } finally {
+      client.close();
+    }
   }
 
   /// Request install permission (Android 8+), then open the APK file.

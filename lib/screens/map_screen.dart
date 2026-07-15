@@ -10,6 +10,7 @@ import '../services/alert_service.dart';
 import '../services/map_location_service.dart';
 import '../services/map_camera_service.dart';
 import '../services/haversine.dart';
+import '../services/foreground_screen_service.dart';
 import '../widgets/vote_widget.dart';
 import '../widgets/map_error_view.dart';
 import '../utils/relative_time.dart';
@@ -87,6 +88,9 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
+    if (!widget.embedded) {
+      ForegroundScreenService().set(ForegroundScreen.map);
+    }
     _mapReadySafetyTimer = Timer(const Duration(seconds: 5), () {
       if (mounted && !_mapReady) {
         debugPrint('[Map] ⚠️ Map-ready safety timeout');
@@ -98,6 +102,9 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   void dispose() {
+    if (!widget.embedded) {
+      ForegroundScreenService().clear(ForegroundScreen.map);
+    }
     _membersSub?.cancel();
     _alertsSub?.cancel();
     _historyTimer?.cancel();

@@ -21,11 +21,15 @@ import '../widgets/system_alert_card.dart';
 import '../widgets/proximity_alert_settings.dart';
 import '../widgets/appearance_settings.dart';
 import '../services/theme_service.dart';
+import '../services/foreground_screen_service.dart';
 import 'health_dashboard.dart';
 import 'group_screen.dart';
 import 'map_screen.dart';
 import 'chat_screen.dart';
 import 'blacklist_screen.dart';
+import 'admin_panel_screen.dart';
+import 'stats_screen.dart';
+import '../services/admin_service.dart';
 
 /// Settings screen with proximity threshold selector and leave-group action.
 /// All settings are ephemeral — stored only in the in-memory AppSettings singleton.
@@ -61,6 +65,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    ForegroundScreenService().set(ForegroundScreen.settings);
     _userName = widget.userName;
     _checkSystemAlert();
     _loadDashboard();
@@ -68,6 +73,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
+    ForegroundScreenService().clear(ForegroundScreen.settings);
     super.dispose();
   }
 
@@ -293,6 +299,100 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   borderRadius: BorderRadius.circular(14),
                 ),
               ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const StatsScreen()),
+                );
+              },
+              icon: const Icon(Icons.bar_chart_rounded, size: 20),
+              label: const Text('إحصائيات اليوم'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          SectionHeader(title: 'وضع المشرف'),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: AdminService().isAdmin
+                  ? Column(
+                      children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: Colors.amber.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: const Icon(
+                            Icons.admin_panel_settings_rounded,
+                            color: Colors.amber,
+                            size: 26,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        const Text('وضع المشرف نشط', style: TextStyle(
+                          color: Colors.amber,
+                          fontWeight: FontWeight.bold,
+                        )),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => AdminPanelScreen(
+                                    groupCode: widget.groupCode,
+                                  ),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.admin_panel_settings_rounded, size: 20),
+                            label: const Text('فتح لوحة المشرف'),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: TextButton.icon(
+                            onPressed: () {
+                              setState(() => AdminService().logout());
+                            },
+                            icon: const Icon(Icons.logout_rounded, size: 18),
+                            label: const Text('تسجيل الخروج من وضع المشرف'),
+                            style: TextButton.styleFrom(foregroundColor: Colors.red),
+                          ),
+                        ),
+                      ],
+                    )
+                  : SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _showAdminCodeDialog(),
+                        icon: const Icon(Icons.lock_rounded, size: 20),
+                        label: const Text('تفعيل وضع المشرف'),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                      ),
+                    ),
             ),
           ),
           const SizedBox(height: 24),
@@ -590,6 +690,80 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
       await _localStorage.saveUserName(newName);
       if (mounted) setState(() => _userName = newName);
+    }
+  }
+
+  Future<void> _showAdminCodeDialog() async {
+    final theme = Theme.of(context);
+    final controller = TextEditingController();
+    final code = await showDialog<String>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: Colors.amber.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.admin_panel_settings_rounded, color: Colors.amber, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Text('وضع المشرف', style: theme.textTheme.titleLarge),
+            ],
+          ),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            textAlign: TextAlign.center,
+            obscureText: true,
+            maxLength: 4,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'رمز المشرف',
+              hintText: 'أدخل الرمز',
+              counterText: '',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+              child: const Text('تأكيد'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (code != null && code.isNotEmpty) {
+      if (AdminService().verifyCode(code)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('✓ تم تفعيل وضع المشرف'),
+              backgroundColor: Colors.amber.shade700,
+            ),
+          );
+          setState(() {});
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('✗ رمز غير صحيح'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
     }
   }
 

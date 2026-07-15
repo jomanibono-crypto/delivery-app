@@ -199,7 +199,10 @@ void onStart(ServiceInstance service) async {
   StreamSubscription<DatabaseEvent>? chatSubBg;
   StreamSubscription<DatabaseEvent>? alertsSubBg;
   int foregroundNotifCounter = 0;
-  final proximityBg = ProximityService(FlutterLocalNotificationsPlugin());
+  final proximityBg = ProximityService(
+    FlutterLocalNotificationsPlugin(),
+    channelId: 'proximity_channel_v3', // بُعد تهيئة NotificationService سيُحدّثها
+  );
   final alertService = AlertService();
   List<AlertData> cachedAlerts = [];
   service.on('stop').listen((event) async {
