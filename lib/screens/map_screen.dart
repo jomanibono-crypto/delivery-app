@@ -80,15 +80,16 @@ class _MapScreenState extends State<MapScreen> {
   List<LatLng> _route = [];
   String? _followingMemberId;
 
-  // ── Marker colors ──
+  // ── Marker colors (matches new design mockup) ──
+  // me = orange, others = indigo/mint/rose/amber rotation
   static const _colors = [
-    Color(0xFF1565C0),
-    Color(0xFFE53935),
-    Color(0xFF43A047),
-    Color(0xFFFB8C00),
-    Color(0xFF8E24AA),
-    Color(0xFF00ACC1),
-    Color(0xFFD81B60),
+    Color(0xFFFF7A45), // me — orange (followed = highlighted orange)
+    Color(0xFF5B6CFF), // indigo
+    Color(0xFF00D4A0), // mint
+    Color(0xFFFF4D6D), // rose
+    Color(0xFFFFB627), // amber
+    Color(0xFF8E24AA), // purple
+    Color(0xFF00ACC1), // cyan
   ];
 
   @override
@@ -765,16 +766,29 @@ class _MapScreenState extends State<MapScreen> {
                 ),
                 const SizedBox(height: 4),
                 Container(
-                  width: 36,
-                  height: 36,
+                  width: isMe ? 40 : 36,
+                  height: isMe ? 40 : 36,
                   decoration: BoxDecoration(
-                    color: color,
+                    gradient: isMe
+                        ? const LinearGradient(
+                            colors: [Color(0xFFFF7A45), Color(0xFFF25A1F)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          )
+                        : null,
+                    color: isMe ? null : color,
                     shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 2.5),
+                    border: Border.all(
+                      color: Colors.white,
+                      width: isMe ? 3 : 2.5,
+                    ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.3),
-                        blurRadius: 4,
+                        color: isMe
+                            ? const Color(0xFFFF7A45).withValues(alpha: 0.5)
+                            : Colors.black.withValues(alpha: 0.3),
+                        blurRadius: isMe ? 12 : 4,
+                        spreadRadius: isMe ? 2 : 0,
                         offset: const Offset(0, 2),
                       ),
                     ],

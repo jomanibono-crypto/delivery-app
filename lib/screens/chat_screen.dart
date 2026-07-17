@@ -198,8 +198,13 @@ class ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildChatHeader() {
+    // Count online members from the messages' sender data for the status pill
+    final onlineCount = _messages
+        .map((m) => m['userId'] as String)
+        .toSet()
+        .length;
     return Container(
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: AppColors.surface,
         border: Border(
           bottom: BorderSide(color: AppColors.ink100, width: 1),
@@ -219,14 +224,12 @@ class ChatScreenState extends State<ChatScreen> {
               Container(
                 width: 40,
                 height: 40,
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   gradient: AppColors.primaryGradient,
-                  borderRadius: BorderRadius.all(Radius.circular(12)),
+                  borderRadius: const BorderRadius.all(Radius.circular(12)),
                 ),
-                child: const Icon(
-                  Icons.chat_bubble_rounded,
-                  size: 20,
-                  color: Colors.white,
+                child: const Center(
+                  child: Text('💬', style: TextStyle(fontSize: 18)),
                 ),
               ),
               const SizedBox(width: AppSpacing.md),
@@ -245,16 +248,24 @@ class ChatScreenState extends State<ChatScreen> {
                         Container(
                           width: 6,
                           height: 6,
-                          decoration: const BoxDecoration(
+                          decoration: BoxDecoration(
                             color: AppColors.mint500,
                             shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppColors.mint500.withValues(alpha: 0.4),
+                                blurRadius: 6,
+                                spreadRadius: 1,
+                              ),
+                            ],
                           ),
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          '${_messages.length} رسالة',
+                          '${onlineCount > 0 ? onlineCount : 1} متصلين الآن',
                           style: AppTypography.labelSm.copyWith(
                             color: AppColors.mint500,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
@@ -262,10 +273,34 @@ class ChatScreenState extends State<ChatScreen> {
                   ],
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.search_rounded),
-                color: AppColors.ink700,
-                onPressed: () {},
+              // Search icon button (matches mockup)
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: AppColors.ink50,
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                ),
+                child: const Icon(
+                  Icons.search_rounded,
+                  size: 18,
+                  color: AppColors.ink700,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              // More menu icon button
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: AppColors.ink50,
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                ),
+                child: const Icon(
+                  Icons.more_vert_rounded,
+                  size: 18,
+                  color: AppColors.ink700,
+                ),
               ),
             ],
           ),

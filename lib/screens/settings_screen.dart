@@ -12,7 +12,6 @@ import '../services/update_service.dart';
 import '../services/notification_service.dart';
 import '../widgets/update_dialog.dart';
 import '../widgets/section_header.dart';
-import '../widgets/info_row.dart';
 import '../widgets/threshold_input.dart';
 import '../widgets/avatar_picker.dart';
 import '../widgets/snooze_card.dart';
@@ -60,6 +59,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isLeaving = false;
   bool _systemAlertGranted = false;
   late String _userName;
+  String _myIcon = '🧑';
 
   // ── Update state ──
   String _currentVersion = '';
@@ -73,12 +73,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _userName = widget.userName;
     _checkSystemAlert();
     _loadDashboard();
+    _loadIcon();
   }
 
   @override
   void dispose() {
     ForegroundScreenService().clear(ForegroundScreen.settings);
     super.dispose();
+  }
+
+  Future<void> _loadIcon() async {
+    final icon = await _localStorage.getUserIcon();
+    if (mounted) setState(() => _myIcon = icon ?? '🧑');
   }
 
   Future<void> _checkSystemAlert() async {
@@ -153,85 +159,152 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppBar(
         backgroundColor: AppColors.surface,
         elevation: 0,
-        scrolledUnderElevation: 1,
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: const BoxDecoration(
-                gradient: AppColors.primaryGradient,
-                borderRadius: BorderRadius.all(Radius.circular(10)),
-              ),
-              child: const Icon(
-                Icons.settings_rounded,
-                color: Colors.white,
-                size: 18,
-              ),
-            ),
-            const SizedBox(width: AppSpacing.md),
-            const Text('الإعدادات', style: AppTypography.titleLg),
-          ],
-        ),
+        scrolledUnderElevation: 0,
+        toolbarHeight: 0,
       ),
       body: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: EdgeInsets.zero,
         children: [
-          SectionHeader(title: 'معلومات المجموعة'),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  InfoRow(
-                    icon: Icons.vpn_key_rounded,
-                    label: 'كود المجموعة',
-                    value: widget.groupCode,
-                  ),
-                  const Divider(height: 24),
-                  InkWell(
-                    borderRadius: BorderRadius.circular(8),
-                    onTap: () => _showChangeNameDialog(),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Row(
+          // ── Redesigned Header ──
+          Container(
+            color: AppColors.surface,
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.lg,
+                  AppSpacing.md,
+                  AppSpacing.lg,
+                  AppSpacing.md,
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        gradient: AppColors.primaryGradient,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.settings_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            Icons.person_rounded,
-                            size: 20,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                          const SizedBox(width: 12),
                           Text(
-                            'اسمك',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
+                            'الإعدادات',
+                            style: AppTypography.titleMd,
                           ),
-                          const Spacer(),
                           Text(
-                            _userName,
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w600,
+                            'إدارة حسابك وإعدادات التطبيق',
+                            style: AppTypography.bodySm.copyWith(
+                              color: AppColors.ink500,
                             ),
-                          ),
-                          const SizedBox(width: 6),
-                          Icon(
-                            Icons.edit_rounded,
-                            size: 16,
-                            color: theme.colorScheme.onSurfaceVariant,
                           ),
                         ],
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
-          const SizedBox(height: 24),
-          SectionHeader(title: 'حد الإشعار'),
+
+          // ── Profile Hero Card ──
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.md,
+              AppSpacing.lg,
+              0,
+            ),
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: AppColors.primaryGradient,
+                borderRadius: BorderRadius.circular(AppRadius.lg),
+                boxShadow: AppColors.shadowGlowPrimary,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.lg),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Center(
+                        child: Text(
+                          _myIcon,
+                          style: const TextStyle(fontSize: 28),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _userName,
+                            style: AppTypography.titleLg.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'المجموعة: ${widget.groupCode}',
+                            style: AppTypography.bodySm.copyWith(
+                              color: Colors.white.withValues(alpha: 0.85),
+                              fontFamily: 'monospace',
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Edit name button
+                    Material(
+                      color: Colors.white.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(12),
+                      child: InkWell(
+                        onTap: _showChangeNameDialog,
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          alignment: Alignment.center,
+                          child: const Icon(
+                            Icons.edit_rounded,
+                            color: Colors.white,
+                            size: 18,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // ── Settings Sections ──
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SectionHeader(title: 'حد الإشعار'),
           ThresholdInput(appSettings: _appSettings),
           const SizedBox(height: 24),
           SectionHeader(title: 'الأيقونة'),
@@ -560,6 +633,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 40),
+              ],
+            ),
+          ),
         ],
       ),
       bottomNavigationBar: _buildBottomNav(),
