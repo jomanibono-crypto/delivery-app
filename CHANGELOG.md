@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.9.1+43 — Design refresh release
+
+Same source as v1.9.0+42 (design refresh). Version bumped for release pipeline.
+Release APK built: `build/app/outputs/flutter-apk/app-release.apk` (55.6 MB).
+
 ## v1.9.0+42 — Security hardening, code cleanup & design refresh
 
 ### Security
