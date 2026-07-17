@@ -6,6 +6,8 @@ import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import '../widgets/app_bottom_nav.dart';
+import '../widgets/app_bottom_sheet.dart';
+import '../widgets/app_button.dart';
 import 'map_screen.dart';
 import 'chat_screen.dart';
 import 'settings_screen.dart';
@@ -77,85 +79,116 @@ class _BlacklistScreenState extends State<BlacklistScreen> {
   }
 
   void _showAddDialog() {
-    final theme = Theme.of(context);
     _phoneController.clear();
     _reasonController.clear();
-    showDialog(
-      context: context,
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          title: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.errorContainer,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  Icons.person_off_rounded,
-                  color: theme.colorScheme.error,
-                  size: 22,
-                ),
+    AppBottomSheet.show<void>(
+      context,
+      title: 'إضافة إلى القائمة السوداء',
+      subtitle: 'أدخل الرقم والسبب لمنعه من رؤية موقعك',
+      initialChildSize: 0.55,
+      minChildSize: 0.4,
+      maxChildSize: 0.9,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Phone input with danger-tinted icon
+          Container(
+            decoration: BoxDecoration(
+              color: AppColors.rose500.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(
+                color: AppColors.rose500.withValues(alpha: 0.2),
+                width: 1.5,
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'إضافة إلى القائمة السوداء',
-                  style: theme.textTheme.titleLarge,
-                ),
-              ),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: _phoneController,
-                textDirection: TextDirection.ltr,
-                keyboardType: TextInputType.phone,
-                decoration: InputDecoration(
-                  labelText: 'رقم الهاتف',
-                  hintText: 'مثال: +212612345678 أو 0612345678',
-                  prefixIcon: const Icon(Icons.phone_rounded),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _reasonController,
-                textDirection: TextDirection.rtl,
-                maxLines: 3,
-                decoration: InputDecoration(
-                  labelText: 'سبب الإضافة',
-                  hintText: 'اكتب سبب إضافة الرقم...',
-                ),
-              ),
-            ],
-          ),
-          actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('إلغاء'),
             ),
-            FilledButton.icon(
-              onPressed: () {
-                final phone = _phoneController.text.trim();
-                final reason = _reasonController.text.trim();
-                if (phone.isEmpty) return;
-                Navigator.pop(ctx);
-                _service.addEntry(phone: phone, reason: reason);
-              },
-              icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('إضافة'),
+            child: TextField(
+              controller: _phoneController,
+              textDirection: TextDirection.ltr,
+              keyboardType: TextInputType.phone,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: AppColors.ink900,
+              ),
+              decoration: InputDecoration(
+                hintText: '+212612345678 أو 0612345678',
+                hintStyle: const TextStyle(
+                  color: AppColors.ink400,
+                  fontWeight: FontWeight.w500,
+                ),
+                labelText: 'رقم الهاتف',
+                labelStyle: const TextStyle(
+                  color: AppColors.rose500,
+                  fontWeight: FontWeight.w600,
+                ),
+                prefixIcon: Container(
+                  margin: const EdgeInsets.all(10),
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: AppColors.rose500,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.phone_rounded,
+                    color: Colors.white,
+                    size: 16,
+                  ),
+                ),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.lg,
+                  vertical: AppSpacing.md,
+                ),
+              ),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          // Reason input
+          TextField(
+            controller: _reasonController,
+            textDirection: TextDirection.rtl,
+            maxLines: 3,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w500,
+              color: AppColors.ink900,
+            ),
+            decoration: InputDecoration(
+              labelText: 'سبب الإضافة',
+              labelStyle: const TextStyle(
+                color: AppColors.ink700,
+                fontWeight: FontWeight.w600,
+              ),
+              hintText: 'اكتب سبب إضافة الرقم...',
+              hintStyle: const TextStyle(
+                color: AppColors.ink400,
+                fontWeight: FontWeight.w500,
+              ),
+              filled: true,
+              fillColor: AppColors.ink50,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.all(AppSpacing.md),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          AppButton(
+            label: 'إضافة إلى القائمة',
+            leadingIcon: Icons.add_rounded,
+            variant: AppButtonVariant.danger,
+            onPressed: () {
+              final phone = _phoneController.text.trim();
+              final reason = _reasonController.text.trim();
+              if (phone.isEmpty) return;
+              Navigator.pop(context);
+              _service.addEntry(phone: phone, reason: reason);
+            },
+          ),
+        ],
       ),
     );
   }

@@ -25,6 +25,9 @@ import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import '../widgets/app_bottom_nav.dart';
+import '../widgets/app_bottom_sheet.dart';
+import '../widgets/app_button.dart';
+import '../widgets/app_input.dart';
 import 'health_dashboard.dart';
 import 'group_screen.dart';
 import 'map_screen.dart';
@@ -645,60 +648,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // ──────────────────── Leave Group ────────────────────
 
   void _showLeaveConfirmation() {
-    final theme = Theme.of(context);
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          title: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.errorContainer,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  Icons.logout_rounded,
-                  color: theme.colorScheme.error,
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Text('تأكيد المغادرة', style: theme.textTheme.titleLarge),
-            ],
-          ),
-          content: Text(
-            'هل أنت متأكد أنك تريد مغادرة المجموعة؟',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('إلغاء'),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: theme.colorScheme.error,
-              ),
-              onPressed: () {
-                Navigator.pop(dialogContext);
-                _leaveGroup();
-              },
-              child: const Text('مغادرة'),
-            ),
-          ],
+    AppBottomSheet.showActions<void>(
+      context,
+      title: 'تأكيد المغادرة',
+      subtitle: 'هل أنت متأكد أنك تريد مغادرة المجموعة؟',
+      actions: [
+        SheetAction(
+          label: 'مغادرة المجموعة',
+          icon: Icons.logout_rounded,
+          isDestructive: true,
+          onTap: _leaveGroup,
         ),
-      ),
+        SheetAction(
+          label: 'إلغاء',
+          icon: Icons.close_rounded,
+          iconColor: AppColors.ink700,
+          backgroundColor: AppColors.ink50,
+          onTap: () {},
+        ),
+      ],
     );
   }
 
@@ -726,53 +694,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _showChangeNameDialog() async {
-    final theme = Theme.of(context);
     final controller = TextEditingController(text: _userName);
-    final newName = await showDialog<String>(
-      context: context,
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          title: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  Icons.edit_rounded,
-                  color: theme.colorScheme.primary,
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Text('تغيير الاسم', style: theme.textTheme.titleLarge),
-            ],
-          ),
-          content: TextField(
+    final newName = await AppBottomSheet.show<String>(
+      context,
+      title: 'تغيير الاسم',
+      subtitle: 'سيظهر الاسم الجديد لجميع أعضاء المجموعة',
+      initialChildSize: 0.45,
+      minChildSize: 0.4,
+      maxChildSize: 0.7,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AppInput(
             controller: controller,
+            label: 'الاسم الجديد',
+            leadingIcon: Icons.person_outline_rounded,
             autofocus: true,
-            textAlign: TextAlign.center,
-            decoration: const InputDecoration(labelText: 'الاسم الجديد'),
           ),
-          actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('إلغاء'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-              child: const Text('حفظ'),
-            ),
-          ],
-        ),
+          const SizedBox(height: AppSpacing.lg),
+          AppButton(
+            label: 'حفظ التغيير',
+            leadingIcon: Icons.check_rounded,
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+          ),
+        ],
       ),
     );
     if (newName != null && newName.isNotEmpty && newName != _userName) {

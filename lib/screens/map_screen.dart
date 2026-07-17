@@ -15,14 +15,15 @@ import '../services/map_cache_service.dart';
 import '../services/alert_service.dart';
 import '../services/map_location_service.dart';
 import '../services/map_camera_service.dart';
-import '../services/haversine.dart';
 import '../services/foreground_screen_service.dart';
 import '../widgets/vote_widget.dart';
 import '../widgets/map_error_view.dart';
+import '../widgets/app_bottom_sheet.dart';
 import '../utils/relative_time.dart';
 import 'settings_screen.dart';
 import 'chat_screen.dart';
 import 'blacklist_screen.dart';
+import 'member_detail_screen.dart';
 
 class MapScreen extends StatefulWidget {
   final String groupCode;
@@ -392,80 +393,38 @@ class _MapScreenState extends State<MapScreen> {
   void _onLongPress(TapPosition tap, LatLng point) =>
       _showAlertContextMenu(point);
 
+  /// Alert composer — bottom sheet matching mockup Screen 8.
+  /// Six alert types as colored tiles with semantic tinting.
   void _showAlertContextMenu(LatLng point) {
-    final theme = Theme.of(context);
-    showDialog(
-      context: context,
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          contentPadding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
-          title: Column(
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.errorContainer,
-                  borderRadius: BorderRadius.circular(16),
+    AppBottomSheet.show<void>(
+      context,
+      title: 'إبلاغ عن',
+      subtitle: 'اختر نوع البلاغ الذي تريد إرساله للمجموعة',
+      initialChildSize: 0.62,
+      minChildSize: 0.4,
+      maxChildSize: 0.9,
+      child: _AlertComposerGrid(
+        onSelect: (type) async {
+          await _alertSvc.addAlert(
+            groupCode: widget.groupCode,
+            type: type,
+            lat: point.latitude,
+            lng: point.longitude,
+          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('تم الإبلاغ عن ${type.label}'),
+                backgroundColor: AppColors.success,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(
-                  Icons.warning_amber_rounded,
-                  color: theme.colorScheme.error,
-                  size: 26,
-                ),
+                duration: const Duration(seconds: 2),
               ),
-              const SizedBox(height: 12),
-              Text(
-                'إبلاغ عن',
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: AlertType.values
-                .where((t) => t.isAlert)
-                .map(
-                  (type) => ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: type.color.withValues(alpha: 0.15),
-                      child: Text(
-                        type.label.runes.isNotEmpty
-                            ? String.fromCharCode(type.label.runes.first)
-                            : '',
-                        style: TextStyle(fontSize: 16),
-                      ),
-                    ),
-                    title: Text(type.label),
-                    onTap: () async {
-                      Navigator.pop(ctx);
-                      await _alertSvc.addAlert(
-                        groupCode: widget.groupCode,
-                        type: type,
-                        lat: point.latitude,
-                        lng: point.longitude,
-                      );
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('تم الإبلاغ عن ${type.label}'),
-                            backgroundColor: const Color(0xFF2E7D32),
-                            duration: const Duration(seconds: 2),
-                          ),
-                        );
-                      }
-                    },
-                  ),
-                )
-                .toList(),
-          ),
-        ),
+            );
+          }
+        },
       ),
     );
   }
@@ -742,7 +701,7 @@ class _MapScreenState extends State<MapScreen> {
           width: 80,
           height: 64,
           child: GestureDetector(
-            onTap: () => _showMemberPopup(key),
+            onTap: () => _openMemberDetails(key),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -815,154 +774,36 @@ class _MapScreenState extends State<MapScreen> {
     return markers;
   }
 
-  void _showMemberPopup(String key) {
+  /// Navigate to the dedicated Member Details screen with Hero animation
+  /// matching mockup Screen 7 (gradient header + stats grid).
+  void _openMemberDetails(String key) {
     final m = _members[key];
     if (m == null) return;
-    final theme = Theme.of(context);
-    final uid = _fb.userId;
-    final isMe = key == uid;
-    final name = m['name'] as String? ?? '';
-    final icon = m['icon'] as String? ?? '';
-    final online = m['online'] as bool? ?? false;
-    final lat = m['lat'] as double? ?? 0.0;
-    final lng = m['lng'] as double? ?? 0.0;
-    final speedMs = m['speed'] as double? ?? 0.0;
-    final speedKmh = speedMs * 3.6;
-    final lastMoved = m['last_moved_at'] as int? ?? 0;
-    final now = DateTime.now().millisecondsSinceEpoch;
-
-    // Stop duration
-    String stopDuration = '';
-    if (lastMoved > 0 && speedMs < 1) {
-      final stoppedSec = (now - lastMoved) ~/ 1000;
-      if (stoppedSec < 60) {
-        stopDuration = 'منذ أقل من دقيقة';
-      } else if (stoppedSec < 3600) {
-        stopDuration = 'منذ ${stoppedSec ~/ 60} دقيقة';
-      } else if (stoppedSec < 86400) {
-        stopDuration = 'منذ ${stoppedSec ~/ 3600} ساعة';
-      } else {
-        stopDuration = 'منذ ${stoppedSec ~/ 86400} يوم';
-      }
-    }
-
-    // Distance from me
-    String distanceStr = '';
-    final myData = _members[uid];
-    if (myData != null && !isMe) {
-      final myLat = myData['lat'] as double? ?? 0.0;
-      final myLng = myData['lng'] as double? ?? 0.0;
-      if (myLat != 0.0 && myLng != 0.0 && lat != 0.0 && lng != 0.0) {
-        final dist = calculateDistance(myLat, myLng, lat, lng);
-        distanceStr = dist < 1000
-            ? '${dist.toStringAsFixed(0)} متر'
-            : '${(dist / 1000).toStringAsFixed(1)} كم';
-      }
-    }
-
-    // Battery (from Firebase data if available)
-    final battery = m['battery'] as int?;
-    final batteryStr = battery != null ? '🔋 $battery%' : 'البطارية غير متوفرة';
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (_) => DraggableScrollableSheet(
-        initialChildSize: 0.55,
-        minChildSize: 0.3,
-        maxChildSize: 0.85,
-        expand: false,
-        builder: (_, scrollCtrl) => SingleChildScrollView(
-          controller: scrollCtrl,
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // Drag handle
-              Container(width: 40, height: 4,
-                decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
-              const SizedBox(height: 20),
-              // Avatar + Name
-              CircleAvatar(
-                radius: 36,
-                backgroundColor: theme.colorScheme.primaryContainer,
-                child: icon.isNotEmpty
-                    ? Text(icon, style: const TextStyle(fontSize: 32))
-                    : Icon(Icons.person_rounded, color: theme.colorScheme.primary, size: 32),
-              ),
-              const SizedBox(height: 12),
-              Text(name, style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Container(
-                  width: 8, height: 8,
-                  decoration: BoxDecoration(color: online ? Colors.green : Colors.grey, shape: BoxShape.circle),
-                ),
-                const SizedBox(width: 6),
-                Text(online ? 'متصل' : 'غير متصل',
-                  style: TextStyle(color: online ? Colors.green : Colors.grey, fontWeight: FontWeight.w600)),
-              ]),
-              const SizedBox(height: 24),
-              const Divider(height: 1),
-              const SizedBox(height: 12),
-
-              // Info rows
-              _infoRow(theme, Icons.speed_rounded, 'السرعة', speedKmh > 0 ? '${speedKmh.toStringAsFixed(1)} كم/ساعة' : '0 كم/ساعة'),
-              if (stopDuration.isNotEmpty)
-                _infoRow(theme, Icons.timer_rounded, 'متوقف', stopDuration),
-              _infoRow(theme, Icons.location_on_rounded, 'الإحداثيات', '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}'),
-              if (distanceStr.isNotEmpty)
-                _infoRow(theme, Icons.straighten_rounded, 'المسافة مني', distanceStr),
-              _infoRow(theme, Icons.battery_std_rounded, 'البطارية', batteryStr),
-              _infoRow(theme, Icons.update_rounded, 'آخر تحديث', relativeTime(m['timestamp'] as int? ?? lastMoved)),
-              if (lastMoved > 0)
-                _infoRow(theme, Icons.person_pin_rounded, 'آخر نشاط', relativeTime(lastMoved)),
-
-              const SizedBox(height: 24),
-
-              // Follow button
-              if (!isMe)
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      _selectMember(key);
-                    },
-                    icon: const Icon(Icons.my_location_rounded, size: 20),
-                    label: Text(_followingMemberId == key ? 'إلغاء التتبع' : 'تتبع العضو'),
-                  ),
-                ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('إغلاق'),
-                ),
-              ),
-            ],
-          ),
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 320),
+        pageBuilder: (_, _, _) => MemberDetailScreen(
+          memberId: key,
+          memberData: m,
+          allMembers: _members,
+          currentUserId: _fb.userId,
+          onFollow: _selectMember,
         ),
-      ),
-    );
-  }
-
-  Widget _infoRow(ThemeData theme, IconData icon, String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: theme.colorScheme.onSurfaceVariant),
-          const SizedBox(width: 12),
-          Text(label, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-          const Spacer(),
-          Text(value, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600), textAlign: TextAlign.end),
-        ],
+        transitionsBuilder: (_, anim, _, child) {
+          return FadeTransition(
+            opacity: anim,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, 0.08),
+                end: Offset.zero,
+              ).animate(CurvedAnimation(
+                parent: anim,
+                curve: Curves.easeOutCubic,
+              )),
+              child: child,
+            ),
+          );
+        },
       ),
     );
   }
@@ -1392,6 +1233,91 @@ class _MapScreenState extends State<MapScreen> {
 // ═══════════════════════════════════════════════════════════════
 //  PRIVATE HELPER WIDGETS — used by the redesigned map screen
 // ═══════════════════════════════════════════════════════════════
+
+class _AlertComposerGrid extends StatelessWidget {
+  final void Function(AlertType type) onSelect;
+  const _AlertComposerGrid({required this.onSelect});
+
+  IconData _iconFor(AlertType t) => switch (t) {
+    AlertType.police => Icons.local_police_rounded,
+    AlertType.speedTrap => Icons.speed_rounded,
+    AlertType.control => Icons.supervisor_account_rounded,
+    AlertType.hazard => Icons.warning_rounded,
+    AlertType.accident => Icons.car_crash_rounded,
+    AlertType.badCustomer => Icons.person_off_rounded,
+    AlertType.note => Icons.sticky_note_2_rounded,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final alertTypes = AlertType.values.where((t) => t.isAlert).toList();
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: AppSpacing.sm,
+        crossAxisSpacing: AppSpacing.sm,
+        childAspectRatio: 2.4,
+      ),
+      itemCount: alertTypes.length,
+      itemBuilder: (ctx, i) {
+        final type = alertTypes[i];
+        return Material(
+          color: type.color.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          child: InkWell(
+            onTap: () => onSelect(type),
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.md,
+                vertical: AppSpacing.md,
+              ),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                border: Border.all(
+                  color: type.color.withValues(alpha: 0.2),
+                  width: 1.5,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      _iconFor(type),
+                      color: type.color,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: Text(
+                      type.label,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.ink900,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
 
 class _GlassPill extends StatelessWidget {
   final Widget child;
