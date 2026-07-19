@@ -39,6 +39,28 @@ jobs:
           fi
           echo "✅ No secrets detected"
 
+      - name: 🔑 Restore release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "❌ KEYSTORE_BASE64 secret is not set. Configure it in repo Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          echo "🔐 Decoding keystore to android/app/release.keystore..."
+          echo "$KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
+          echo "🔑 Writing android/key.properties..."
+          {
+            printf 'storePassword=%s\n' "$KEYSTORE_PASSWORD"
+            printf 'keyPassword=%s\n' "$KEY_PASSWORD"
+            printf 'keyAlias=%s\n' "$KEY_ALIAS"
+            printf 'storeFile=%s\n' "app/release.keystore"
+          } > android/key.properties
+          echo "✅ Signing config restored (storeFile + key.properties)"
+
       - name: 🔨 Build APK
         run: flutter build apk --release --dart-define=MAPBOX_TOKEN=${{ secrets.MAPBOX_TOKEN }}
 
