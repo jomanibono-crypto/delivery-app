@@ -11,6 +11,7 @@ import '../widgets/app_bottom_nav.dart';
 import '../widgets/status_pill.dart';
 import '../config/mapbox_config.dart';
 import '../services/firebase_service.dart';
+import '../services/blacklist_service.dart';
 import '../services/map_cache_service.dart';
 import '../services/alert_service.dart';
 import '../services/map_location_service.dart';
@@ -45,12 +46,14 @@ class _MapScreenState extends State<MapScreen> {
   // ── Services ──
   final FirebaseService _fb = FirebaseService();
   final AlertService _alertSvc = AlertService();
+  final BlacklistService _blacklistSvc = BlacklistService();
   final MapLocationService _locationSvc = MapLocationService();
   final MapController _mapCtrl = MapController();
 
   // ── Subscriptions ──
   StreamSubscription<DatabaseEvent>? _membersSub;
   StreamSubscription<List<AlertData>>? _alertsSub;
+  StreamSubscription<List<BlacklistEntry>>? _badCustomerSub;
   Timer? _historyTimer;
   Timer? _smartCameraDelay;
   Timer? _mapReadySafetyTimer;
@@ -75,8 +78,11 @@ class _MapScreenState extends State<MapScreen> {
       ValueNotifier({});
   final ValueNotifier<List<AlertData>> _alertsNotifier =
       ValueNotifier([]);
+  final ValueNotifier<List<BlacklistEntry>> _badCustomerNotifier =
+      ValueNotifier([]);
   Map<String, Map<String, dynamic>> get _members => _membersNotifier.value;
   List<AlertData> get _alerts => _alertsNotifier.value;
+  List<BlacklistEntry> get _badCustomers => _badCustomerNotifier.value;
 
   List<LatLng> _route = [];
   String? _followingMemberId;
@@ -115,6 +121,7 @@ class _MapScreenState extends State<MapScreen> {
     }
     _membersSub?.cancel();
     _alertsSub?.cancel();
+    _badCustomerSub?.cancel();
     _historyTimer?.cancel();
     _smartCameraDelay?.cancel();
     _mapReadySafetyTimer?.cancel();
@@ -171,6 +178,8 @@ class _MapScreenState extends State<MapScreen> {
       debugPrint('[Map] Member listener started');
       _listenAlerts();
       debugPrint('[Map] Alert listener started');
+      _listenBadCustomers();
+      debugPrint('[Map] Bad-customer listener started');
 
       debugPrint('[Map] Init complete — waiting for onMapReady');
     } catch (e) {
@@ -228,6 +237,15 @@ class _MapScreenState extends State<MapScreen> {
     _alertsSub = _alertSvc.watchAlerts(widget.groupCode).listen((alerts) {
       if (!mounted) return;
       _alertsNotifier.value = alerts.where((a) => !a.resolved).toList();
+    });
+  }
+
+  void _listenBadCustomers() {
+    _badCustomerSub = _blacklistSvc.watchMarkers().listen((entries) {
+      if (!mounted) return;
+      _badCustomerNotifier.value = entries;
+    }, onError: (e) {
+      debugPrint('[Map] Bad-customer marker stream error: $e');
     });
   }
 
