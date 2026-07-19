@@ -20,6 +20,9 @@ import '../services/foreground_screen_service.dart';
 import '../widgets/vote_widget.dart';
 import '../widgets/map_error_view.dart';
 import '../widgets/app_bottom_sheet.dart';
+import '../widgets/app_button.dart';
+import '../widgets/app_input.dart';
+import '../widgets/info_row.dart';
 import '../utils/relative_time.dart';
 import 'settings_screen.dart';
 import 'chat_screen.dart';
@@ -411,38 +414,335 @@ class _MapScreenState extends State<MapScreen> {
   void _onLongPress(TapPosition tap, LatLng point) =>
       _showAlertContextMenu(point);
 
-  /// Alert composer — bottom sheet matching mockup Screen 8.
-  /// Six alert types as colored tiles with semantic tinting.
+  /// Long-press menu. Top section: ephemeral alert types. Bottom section:
+  /// a single "permanent bad customer" tile that drops a persistent marker.
   void _showAlertContextMenu(LatLng point) {
     AppBottomSheet.show<void>(
       context,
       title: 'إبلاغ عن',
-      subtitle: 'اختر نوع البلاغ الذي تريد إرساله للمجموعة',
-      initialChildSize: 0.62,
+      subtitle: 'اختر نوع البلاغ أو أضف علامة دائمة',
+      initialChildSize: 0.72,
       minChildSize: 0.4,
-      maxChildSize: 0.9,
-      child: _AlertComposerGrid(
-        onSelect: (type) async {
-          await _alertSvc.addAlert(
-            groupCode: widget.groupCode,
-            type: type,
-            lat: point.latitude,
-            lng: point.longitude,
-          );
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('تم الإبلاغ عن ${type.label}'),
-                backgroundColor: AppColors.success,
-                behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+      maxChildSize: 0.95,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _AlertComposerGrid(
+            onSelect: (type) async {
+              await _alertSvc.addAlert(
+                groupCode: widget.groupCode,
+                type: type,
+                lat: point.latitude,
+                lng: point.longitude,
+              );
+              if (mounted) {
+                Navigator.of(context).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('تم الإبلاغ عن ${type.label}'),
+                    backgroundColor: AppColors.success,
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+          ),
+          const _SheetSectionLabel(text: 'علامات دائمة'),
+          Material(
+            color: AppColors.danger.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            child: InkWell(
+              onTap: () {
+                Navigator.of(context).pop();
+                _showBadCustomerComposer(point);
+              },
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.md,
                 ),
-                duration: const Duration(seconds: 2),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  border: Border.all(
+                    color: AppColors.danger.withValues(alpha: 0.2),
+                    width: 1.5,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.person_off_rounded,
+                        color: AppColors.danger,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    const Expanded(
+                      child: Text(
+                        'زبون سيئ',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.ink900,
+                        ),
+                      ),
+                    ),
+                    Icon(
+                      Icons.chevron_left_rounded,
+                      color: AppColors.danger.withValues(alpha: 0.4),
+                      size: 18,
+                    ),
+                  ],
+                ),
               ),
-            );
-          }
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Composer for dropping a persistent bad-customer marker at [point].
+  /// All fields optional — a tap on "حفظ العلامة" with everything empty still
+  /// creates a marker (carries only coordinates + audit info).
+  void _showBadCustomerComposer(LatLng point) {
+    final nameCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController();
+    final reasonCtrl = TextEditingController();
+    bool saving = false;
+
+    AppBottomSheet.show<void>(
+      context,
+      title: 'زبون سيئ',
+      subtitle: 'العلامة ستبقى على الخريطة حتى يتم حذفها يدوياً',
+      initialChildSize: 0.7,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      child: StatefulBuilder(
+        builder: (ctx, setLocal) {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              AppInput(
+                controller: nameCtrl,
+                label: 'اسم الزبون (اختياري)',
+                hint: 'مثال: محمد',
+                leadingIcon: Icons.person_rounded,
+                textDirection: TextDirection.rtl,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              AppInput(
+                controller: phoneCtrl,
+                label: 'رقم الهاتف (اختياري)',
+                hint: '06xxxxxxxx',
+                leadingIcon: Icons.phone_rounded,
+                keyboardType: TextInputType.phone,
+                textDirection: TextDirection.ltr,
+                textAlign: TextAlign.start,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              AppInput(
+                controller: reasonCtrl,
+                label: 'السبب (اختياري)',
+                hint: 'لماذا هذا الزبون سيئ؟',
+                leadingIcon: Icons.note_rounded,
+                textDirection: TextDirection.rtl,
+              ),
+              const SizedBox(height: AppSpacing.xl),
+              AppButton(
+                label: 'حفظ العلامة',
+                leadingIcon: Icons.push_pin_rounded,
+                isLoading: saving,
+                onPressed: () async {
+                  setLocal(() => saving = true);
+                  try {
+                    await _blacklistSvc.addEntry(
+                      lat: point.latitude,
+                      lng: point.longitude,
+                      name: nameCtrl.text,
+                      phone: phoneCtrl.text,
+                      reason: reasonCtrl.text,
+                    );
+                    if (mounted) {
+                      Navigator.of(context).pop();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: const Text('تمت إضافة علامة زبون سيئ'),
+                          backgroundColor: AppColors.success,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('تعذّر حفظ العلامة: $e'),
+                          backgroundColor: AppColors.danger,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      );
+                    }
+                  } finally {
+                    if (mounted) setLocal(() => saving = false);
+                  }
+                },
+              ),
+            ],
+          );
         },
+      ),
+    );
+  }
+
+  /// Detail sheet for a persistent bad-customer marker. Shows whatever
+  /// metadata the entry carries and a delete button.
+  void _showBadCustomerDetail(BlacklistEntry entry) {
+    AppBottomSheet.show<void>(
+      context,
+      title: 'زبون سيئ',
+      subtitle: 'علامة دائمة على الخريطة',
+      initialChildSize: 0.55,
+      minChildSize: 0.3,
+      maxChildSize: 0.85,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 56,
+              height: 56,
+              decoration: const BoxDecoration(
+                gradient: AppColors.dangerGradient,
+                shape: BoxShape.circle,
+                boxShadow: AppColors.shadowGlowDanger,
+              ),
+              child: const Icon(
+                Icons.person_off_rounded,
+                color: Colors.white,
+                size: 28,
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          if (entry.name != null && entry.name!.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: InfoRow(
+                icon: Icons.person_rounded,
+                label: 'الاسم',
+                value: entry.name!,
+              ),
+            ),
+          if (entry.phone.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: InfoRow(
+                icon: Icons.phone_rounded,
+                label: 'الهاتف',
+                value: entry.phone,
+              ),
+            ),
+          if (entry.reason.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: InfoRow(
+                icon: Icons.note_rounded,
+                label: 'السبب',
+                value: entry.reason,
+              ),
+            ),
+          InfoRow(
+            icon: Icons.person_pin_rounded,
+            label: 'أضيفت بواسطة',
+            value: entry.addedByName,
+          ),
+          if (entry.timestamp > 0) ...[
+            const SizedBox(height: AppSpacing.sm),
+            InfoRow(
+              icon: Icons.schedule_rounded,
+              label: 'التاريخ',
+              value: relativeTime(entry.timestamp),
+            ),
+          ],
+          const SizedBox(height: AppSpacing.xl),
+          AppButton(
+            label: 'حذف العلامة',
+            variant: AppButtonVariant.danger,
+            leadingIcon: Icons.delete_outline_rounded,
+            onPressed: () {
+              Navigator.of(context).pop();
+              _confirmDeleteBadCustomer(entry);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteBadCustomer(BlacklistEntry entry) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text('حذف العلامة'),
+          content: const Text(
+            'هل تريد حذف هذه العلامة نهائياً؟ لا يمكن التراجع.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('إلغاء'),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+              onPressed: () async {
+                Navigator.of(ctx).pop();
+                await _blacklistSvc.deleteEntry(entry.id);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: const Text('تم حذف العلامة'),
+                      backgroundColor: AppColors.success,
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                }
+              },
+              child: const Text('حذف'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -698,6 +998,64 @@ class _MapScreenState extends State<MapScreen> {
     }).toList();
   }
 
+  List<Marker> _buildBadCustomerMarkers() {
+    return _badCustomers.map((entry) {
+      return Marker(
+        point: LatLng(entry.lat!, entry.lng!),
+        width: 110,
+        height: 70,
+        child: GestureDetector(
+          onTap: () => _showBadCustomerDetail(entry),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  gradient: AppColors.dangerGradient,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 2.5),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Colors.black26,
+                      blurRadius: 4,
+                      offset: Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.person_off_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
+              ),
+              Container(
+                margin: const EdgeInsets.only(top: 3),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 6,
+                  vertical: 2,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black87,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Text(
+                  'زبون سيئ',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }).toList();
+  }
+
   List<Marker> _buildMemberMarkers() {
     final uid = _fb.userId;
     final keys = _members.keys.toList();
@@ -945,6 +1303,12 @@ class _MapScreenState extends State<MapScreen> {
               valueListenable: _alertsNotifier,
               builder: (_, alerts, _) => MarkerLayer(
                 markers: _buildAlertMarkers(),
+              ),
+            ),
+            ValueListenableBuilder<List<BlacklistEntry>>(
+              valueListenable: _badCustomerNotifier,
+              builder: (_, entries, _) => MarkerLayer(
+                markers: _buildBadCustomerMarkers(),
               ),
             ),
             ValueListenableBuilder(
@@ -1537,6 +1901,30 @@ class _MemberChip extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetSectionLabel extends StatelessWidget {
+  final String text;
+  const _SheetSectionLabel({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(
+        top: AppSpacing.md,
+        bottom: AppSpacing.sm,
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          color: AppColors.ink500,
+          letterSpacing: 0.3,
         ),
       ),
     );
