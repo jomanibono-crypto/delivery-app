@@ -65,19 +65,41 @@ class BlacklistService {
     return digits;
   }
 
-  Future<void> addEntry({required String phone, required String reason}) async {
+  /// Add an entry. Either a phone-only block (legacy) or a map marker
+  /// (when `lat`/`lng` are provided). `phone` and `reason` are optional in
+  /// both cases; a pure marker may carry no phone at all.
+  Future<void> addEntry({
+    String? phone,
+    String? reason,
+    double? lat,
+    double? lng,
+    String? name,
+  }) async {
     await _firebase.signInAnonymously();
     final uid = _firebase.userId;
     final userName = _firebase.currentUser?.displayName ?? 'عضو';
     final ref = _db.child('blacklist').push();
-    await ref.set({
-      'phone': phone,
-      'normalized': normalize(phone),
-      'reason': reason,
+    final data = <String, dynamic>{
       'addedBy': uid,
       'addedByName': userName,
       'timestamp': ServerValue.timestamp,
-    });
+    };
+    if (phone != null && phone.trim().isNotEmpty) {
+      data['phone'] = phone.trim();
+      data['normalized'] = normalize(phone);
+    } else {
+      data['phone'] = '';
+      data['normalized'] = '';
+    }
+    if (reason != null && reason.trim().isNotEmpty) {
+      data['reason'] = reason.trim();
+    } else {
+      data['reason'] = '';
+    }
+    if (lat != null) data['lat'] = lat;
+    if (lng != null) data['lng'] = lng;
+    if (name != null && name.trim().isNotEmpty) data['name'] = name.trim();
+    await ref.set(data);
   }
 
   Future<void> deleteEntry(String entryId) async {
@@ -114,5 +136,11 @@ class BlacklistService {
       entries.sort((a, b) => b.timestamp.compareTo(a.timestamp));
       return entries;
     });
+  }
+
+  /// Stream of entries that have a map location (persistent markers).
+  /// Phone-only entries (no lat/lng) are filtered out.
+  Stream<List<BlacklistEntry>> watchMarkers() {
+    return watchAll().map((entries) => entries.where((e) => e.hasMarker).toList());
   }
 }
