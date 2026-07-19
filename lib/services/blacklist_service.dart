@@ -11,6 +11,12 @@ class BlacklistEntry {
   final String addedBy;
   final String addedByName;
   final int timestamp;
+  /// Location of a persistent map marker. `null` for phone-only entries.
+  final double? lat;
+  /// Location of a persistent map marker. `null` for phone-only entries.
+  final double? lng;
+  /// Optional customer name shown on a map marker detail sheet.
+  final String? name;
 
   BlacklistEntry({
     required this.id,
@@ -20,7 +26,13 @@ class BlacklistEntry {
     required this.addedBy,
     required this.addedByName,
     required this.timestamp,
+    this.lat,
+    this.lng,
+    this.name,
   });
+
+  /// True when this entry should render as a map marker.
+  bool get hasMarker => lat != null && lng != null;
 
   factory BlacklistEntry.fromMap(Map<dynamic, dynamic> map, String id) {
     return BlacklistEntry(
@@ -29,8 +41,11 @@ class BlacklistEntry {
       normalized: map['normalized'] as String? ?? '',
       reason: map['reason'] as String? ?? '',
       addedBy: map['addedBy'] as String? ?? '',
-      addedByName: map['addedByName'] as String? ?? '',
+      addedByName: map['addedByName'] as String? ?? 'عضو',
       timestamp: (map['timestamp'] as num?)?.toInt() ?? 0,
+      lat: (map['lat'] as num?)?.toDouble(),
+      lng: (map['lng'] as num?)?.toDouble(),
+      name: map['name'] as String?,
     );
   }
 }
